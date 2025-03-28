@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
-import { generateImages } from '@/lib/gemini';
+import { GeminiClient } from '@/lib/gemini-client';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -19,22 +19,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { prompt, count = 1 } = req.body;
+  const { prompt, generateImage = true } = req.body;
   
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
   
-  // Validate count
-  const imageCount = Math.min(Math.max(1, Number(count)), 25);
-  
   try {
-    // Call Gemini to generate images
-    const images = await generateImages(prompt, imageCount);
+    // Call Gemini to generate content
+    const client = new GeminiClient();
+    const result = await client.generateContent(prompt, generateImage);
     
-    return res.status(200).json({ images });
+    const response: {
+      caption: string;
+      image?: string;
+    } = {
+      caption: result.caption
+    };
+    
+    if (result.imageBase64) {
+      response.image = `data:image/png;base64,${result.imageBase64}`;
+    }
+    
+    return res.status(200).json(response);
   } catch (error) {
-    console.error('Error generating images:', error);
-    return res.status(500).json({ error: 'Failed to generate images' });
+    console.error('Error generating content:', error);
+    return res.status(500).json({ error: 'Failed to generate content' });
   }
 }

@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
-import { generateCaption } from '@/lib/openai';
+import { generateCaption } from '@/lib/gemini';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -26,7 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   
   try {
-    // Call OpenAI to generate a caption
+    // Call Gemini to generate a caption
     const generatedCaption = await generateCaption(prompt);
     
     return res.status(200).json({ caption: generatedCaption });
