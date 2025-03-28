@@ -664,20 +664,157 @@ export default function Dashboard() {
                         
                         {post.status === 'DRAFT' && (
                           <div className="flex gap-2 w-full mt-2">
-                            <Button 
-                              className="flex-1" 
-                              size="sm"
-                              onClick={() => {
-                                // Open a dialog to confirm posting now
-                                // This would be implemented in a real app
-                                toast({
-                                  title: "Feature coming soon",
-                                  description: "Post now functionality is under development",
-                                });
-                              }}
-                            >
-                              Post Now
-                            </Button>
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button className="flex-1" size="sm">
+                                  Post Now
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Post to Instagram</DialogTitle>
+                                  <DialogDescription>
+                                    Select an Instagram account to post this content to.
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="py-4">
+                                  {accounts.length > 0 ? (
+                                    <div className="grid gap-4">
+                                      <div className="grid gap-2">
+                                        <Label htmlFor="post-account">Instagram Account</Label>
+                                        <select
+                                          id="post-account"
+                                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                          defaultValue={post.instagramAccountId || ""}
+                                        >
+                                          <option value="" disabled>Select an account</option>
+                                          {accounts.map((account) => (
+                                            <option key={account.id} value={account.id}>
+                                              {account.username}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div className="mt-2">
+                                        <div className="rounded-md bg-muted p-4">
+                                          <div className="font-medium">Post Preview</div>
+                                          {post.imageUrl && (
+                                            <div className="mt-2 aspect-square relative rounded-md overflow-hidden border max-w-[200px]">
+                                              <img 
+                                                src={post.imageUrl} 
+                                                alt="Post preview" 
+                                                className="object-cover w-full h-full"
+                                              />
+                                            </div>
+                                          )}
+                                          <p className="mt-2 text-sm">{post.caption}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-center py-4">
+                                      <p className="text-muted-foreground">You need to add an Instagram account first.</p>
+                                      <Button 
+                                        variant="outline" 
+                                        className="mt-2"
+                                        onClick={() => {
+                                          setIsAddingAccount(true);
+                                        }}
+                                      >
+                                        Add Instagram Account
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                                <DialogFooter>
+                                  <Button 
+                                    variant="outline" 
+                                    onClick={(e) => {
+                                      const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
+                                      if (dialogContent) {
+                                        const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
+                                        if (closeButton) {
+                                          (closeButton as HTMLButtonElement).click();
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    onClick={async (e) => {
+                                      const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
+                                      if (!dialogContent) return;
+                                      
+                                      const select = dialogContent.querySelector('select#post-account') as HTMLSelectElement;
+                                      const accountId = select?.value;
+                                      
+                                      if (!accountId) {
+                                        toast({
+                                          variant: "destructive",
+                                          title: "Error",
+                                          description: "Please select an Instagram account",
+                                        });
+                                        return;
+                                      }
+                                      
+                                      try {
+                                        const response = await fetch(`/api/instagram-accounts/${accountId}/post`, {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                          },
+                                          body: JSON.stringify({
+                                            postId: post.id,
+                                          }),
+                                        });
+                                        
+                                        if (!response.ok) {
+                                          const errorData = await response.json();
+                                          throw new Error(errorData.error || errorData.details || 'Failed to post to Instagram');
+                                        }
+                                        
+                                        const result = await response.json();
+                                        
+                                        // Update the post in the local state
+                                        setPosts(posts.map(p => 
+                                          p.id === post.id 
+                                            ? {...p, status: 'PUBLISHED', instagramAccountId: accountId} 
+                                            : p
+                                        ));
+                                        
+                                        toast({
+                                          title: "Success",
+                                          description: "Content posted successfully to Instagram",
+                                        });
+                                        
+                                        // Close the dialog
+                                        const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
+                                        if (closeButton) {
+                                          (closeButton as HTMLButtonElement).click();
+                                        }
+                                      } catch (error) {
+                                        console.error('Error posting to Instagram:', error);
+                                        toast({
+                                          variant: "destructive",
+                                          title: "Error",
+                                          description: error instanceof Error ? error.message : "Failed to post to Instagram",
+                                        });
+                                        
+                                        // Update the post status to FAILED in the local state
+                                        setPosts(posts.map(p => 
+                                          p.id === post.id 
+                                            ? {...p, status: 'FAILED'} 
+                                            : p
+                                        ));
+                                      }
+                                    }}
+                                  >
+                                    Post to Instagram
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
                             <Button 
                               variant="outline" 
                               className="flex-1" 
