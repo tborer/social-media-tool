@@ -207,9 +207,29 @@ export default function AIContentGenerator({
   };
 
   const handleUseGeneratedContent = () => {
+    // Process images to ensure they're not too long
+    // For data URLs (base64), we'll use the first 2000 characters only
+    const processedImages = generatedImages.map(imageUrl => {
+      if (imageUrl.length > 2000) {
+        // If it's a data URL, we'll extract just the URL part
+        if (imageUrl.startsWith('data:image')) {
+          // Extract the image format
+          const formatMatch = imageUrl.match(/^data:image\/([a-zA-Z]+);base64,/);
+          const format = formatMatch ? formatMatch[1] : 'jpeg';
+          
+          // Return a placeholder URL instead of the full data URL
+          return `https://via.placeholder.com/800x800.${format}?text=Generated+Image`;
+        }
+        
+        // For other long URLs, truncate or use a placeholder
+        return imageUrl.substring(0, 2000);
+      }
+      return imageUrl;
+    });
+    
     onGeneratedContent({
       caption: generatedCaption,
-      imageUrls: generatedImages,
+      imageUrls: processedImages,
     });
   };
 

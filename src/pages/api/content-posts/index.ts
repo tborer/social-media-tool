@@ -73,6 +73,14 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
     console.info(`Caption length: ${caption.length} characters`);
     console.info(`Image URL length: ${imageUrl ? imageUrl.length : 0} characters`);
     
+    // Check if the image URL is too long
+    if (imageUrl && imageUrl.length > 2000) {
+      console.warn(`Image URL is too long (${imageUrl.length} characters). This may cause issues.`);
+      return res.status(400).json({ 
+        error: 'Image URL is too long. Please use a shorter URL or a different image.' 
+      });
+    }
+    
     // If instagramAccountId is provided, verify it belongs to the user
     if (instagramAccountId) {
       const account = await prisma.instagramAccount.findFirst({
