@@ -81,8 +81,17 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       });
     }
     
-    // If instagramAccountId is provided, verify it belongs to the user
-    if (instagramAccountId) {
+    // Prepare the data for creating a new post
+    const postData: any = {
+      caption,
+      imageUrl,
+      userId,
+      status: 'DRAFT',
+    };
+    
+    // Only include instagramAccountId if it's provided and valid
+    if (instagramAccountId && instagramAccountId.trim() !== '') {
+      // Verify the Instagram account belongs to the user
       const account = await prisma.instagramAccount.findFirst({
         where: {
           id: instagramAccountId,
@@ -94,17 +103,14 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
         console.error(`Error creating content post: Invalid Instagram account ID: ${instagramAccountId}`);
         return res.status(400).json({ error: 'Invalid Instagram account' });
       }
+      
+      // If account is valid, add it to the post data
+      postData.instagramAccountId = instagramAccountId;
     }
     
     // Create new content post
     const newPost = await prisma.contentPost.create({
-      data: {
-        caption,
-        imageUrl,
-        userId,
-        instagramAccountId,
-        status: 'DRAFT',
-      },
+      data: postData,
     });
     
     console.info(`Successfully created content post with ID: ${newPost.id}`);

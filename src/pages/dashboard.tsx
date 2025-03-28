@@ -145,12 +145,22 @@ export default function Dashboard() {
         return;
       }
 
+      // Create a copy of the post data to send to the API
+      const postData = {
+        caption: newPost.caption,
+        imageUrl: newPost.imageUrl,
+        // Only include instagramAccountId if it's not empty
+        ...(newPost.instagramAccountId && newPost.instagramAccountId.trim() !== '' 
+          ? { instagramAccountId: newPost.instagramAccountId } 
+          : {})
+      };
+
       const response = await fetch('/api/content-posts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(newPost),
+        body: JSON.stringify(postData),
       });
       
       let errorMessage = 'Failed to create post';
