@@ -15,6 +15,7 @@
   "dependencies": {
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
+    "facebook-nodejs-business-sdk": "^18.0.4",
     "@hookform/resolvers": "^3.9.0",
     "@prisma/client": "^5.19.1",
     "@radix-ui/react-accordion": "^1.2.1",

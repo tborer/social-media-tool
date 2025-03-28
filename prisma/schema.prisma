@@ -8,8 +8,45 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
+
 model User {
-  id         String   @id @db.Uuid
-  email      String   @unique
-  createdAt  DateTime @default(now())
+  id                String             @id @db.Uuid
+  email             String             @unique
+  createdAt         DateTime           @default(now())
+  instagramAccounts InstagramAccount[]
+  contentPosts      ContentPost[]
+}
+
+model InstagramAccount {
+  id           String        @id @default(uuid())
+  username     String
+  accessToken  String
+  userId       String        @db.Uuid
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  contentPosts ContentPost[]
+
+  @@unique([userId, username])
+}
+
+model ContentPost {
+  id                 String           @id @default(uuid())
+  caption            String
+  imageUrl           String?
+  status             PostStatus       @default(DRAFT)
+  scheduledFor       DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  userId             String           @db.Uuid
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramAccountId String?
+  instagramAccount   InstagramAccount? @relation(fields: [instagramAccountId], references: [id], onDelete: SetNull)
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
 }
