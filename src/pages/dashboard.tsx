@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw } from "lucide-react";
 import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import AIContentGenerator from "@/components/AIContentGenerator";
 
 type InstagramAccount = {
   id: string;
@@ -39,6 +40,7 @@ export default function Dashboard() {
   const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [newPost, setNewPost] = useState({ caption: "", imageUrl: "", instagramAccountId: "" });
   const [isLoading, setIsLoading] = useState(true);
+  const [isGeneratingContent, setIsGeneratingContent] = useState(false);
 
   // Fetch Instagram accounts and content posts
   useEffect(() => {
@@ -162,6 +164,21 @@ export default function Dashboard() {
       });
     }
   };
+  
+  const handleGeneratedContent = (content: { caption: string; imageUrls: string[] }) => {
+    setNewPost({
+      ...newPost,
+      caption: content.caption,
+      imageUrl: content.imageUrls[0] || "",
+    });
+    setIsGeneratingContent(false);
+    setIsCreatingPost(true);
+    
+    toast({
+      title: "Content Generated",
+      description: "AI-generated content has been added to your post",
+    });
+  };
 
   return (
     <ProtectedRoute>
@@ -280,67 +297,110 @@ export default function Dashboard() {
             <TabsContent value="content">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold">Content Creation</h2>
-                <Dialog open={isCreatingPost} onOpenChange={setIsCreatingPost}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" /> Create New Post
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[525px]">
-                    <DialogHeader>
-                      <DialogTitle>Create Instagram Post</DialogTitle>
-                      <DialogDescription>
-                        Craft your post content and optionally use AI to enhance it.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="caption">Caption</Label>
-                        <Textarea
-                          id="caption"
-                          value={newPost.caption}
-                          onChange={(e) => setNewPost({...newPost, caption: e.target.value})}
-                          placeholder="Write your post caption here..."
-                          className="min-h-[100px]"
-                        />
-                        <Button variant="outline" className="mt-2">
-                          Generate with AI
-                        </Button>
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="imageUrl">Image URL</Label>
-                        <Input
-                          id="imageUrl"
-                          value={newPost.imageUrl}
-                          onChange={(e) => setNewPost({...newPost, imageUrl: e.target.value})}
-                          placeholder="https://example.com/your-image.jpg"
+                <div className="flex gap-2">
+                  <Dialog open={isGeneratingContent} onOpenChange={setIsGeneratingContent}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline">
+                        <RefreshCw className="mr-2 h-4 w-4" /> AI Generate
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[700px]">
+                      <DialogHeader>
+                        <DialogTitle>Generate Instagram Content with AI</DialogTitle>
+                        <DialogDescription>
+                          Use AI to generate captions and images for your Instagram posts.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <AIContentGenerator 
+                          instagramAccounts={accounts} 
+                          onGeneratedContent={handleGeneratedContent} 
                         />
                       </div>
-                      {accounts.length > 0 && (
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsGeneratingContent(false)}>Cancel</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  <Dialog open={isCreatingPost} onOpenChange={setIsCreatingPost}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="mr-2 h-4 w-4" /> Create New Post
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[525px]">
+                      <DialogHeader>
+                        <DialogTitle>Create Instagram Post</DialogTitle>
+                        <DialogDescription>
+                          Craft your post content and optionally use AI to enhance it.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
-                          <Label htmlFor="account">Instagram Account</Label>
-                          <select
-                            id="account"
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            value={newPost.instagramAccountId}
-                            onChange={(e) => setNewPost({...newPost, instagramAccountId: e.target.value})}
+                          <Label htmlFor="caption">Caption</Label>
+                          <Textarea
+                            id="caption"
+                            value={newPost.caption}
+                            onChange={(e) => setNewPost({...newPost, caption: e.target.value})}
+                            placeholder="Write your post caption here..."
+                            className="min-h-[100px]"
+                          />
+                          <Button 
+                            variant="outline" 
+                            className="mt-2"
+                            onClick={() => {
+                              setIsCreatingPost(false);
+                              setIsGeneratingContent(true);
+                            }}
                           >
-                            <option value="">Select an account</option>
-                            {accounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.username}
-                              </option>
-                            ))}
-                          </select>
+                            Generate with AI
+                          </Button>
                         </div>
-                      )}
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsCreatingPost(false)}>Cancel</Button>
-                      <Button onClick={handleCreatePost}>Create Post</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                        <div className="grid gap-2">
+                          <Label htmlFor="imageUrl">Image URL</Label>
+                          <Input
+                            id="imageUrl"
+                            value={newPost.imageUrl}
+                            onChange={(e) => setNewPost({...newPost, imageUrl: e.target.value})}
+                            placeholder="https://example.com/your-image.jpg"
+                          />
+                          {newPost.imageUrl && (
+                            <div className="mt-2 aspect-square relative rounded-md overflow-hidden border">
+                              <img 
+                                src={newPost.imageUrl} 
+                                alt="Post preview" 
+                                className="object-cover w-full h-full"
+                              />
+                            </div>
+                          )}
+                        </div>
+                        {accounts.length > 0 && (
+                          <div className="grid gap-2">
+                            <Label htmlFor="account">Instagram Account</Label>
+                            <select
+                              id="account"
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                              value={newPost.instagramAccountId}
+                              onChange={(e) => setNewPost({...newPost, instagramAccountId: e.target.value})}
+                            >
+                              <option value="">Select an account</option>
+                              {accounts.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                  {account.username}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsCreatingPost(false)}>Cancel</Button>
+                        <Button onClick={handleCreatePost}>Create Post</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
               
               {isLoading ? (

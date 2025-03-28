@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
-import { generateCaption } from '@/lib/openai';
+import { generateImages } from '@/lib/openai';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -19,19 +19,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { prompt } = req.body;
+  const { prompt, count = 1 } = req.body;
   
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
   
+  // Validate count
+  const imageCount = Math.min(Math.max(1, Number(count)), 25);
+  
   try {
-    // Call OpenAI to generate a caption
-    const generatedCaption = await generateCaption(prompt);
+    // Call OpenAI to generate images
+    const images = await generateImages(prompt, imageCount);
     
-    return res.status(200).json({ caption: generatedCaption });
+    return res.status(200).json({ images });
   } catch (error) {
-    console.error('Error generating caption:', error);
-    return res.status(500).json({ error: 'Failed to generate caption' });
+    console.error('Error generating images:', error);
+    return res.status(500).json({ error: 'Failed to generate images' });
   }
 }
