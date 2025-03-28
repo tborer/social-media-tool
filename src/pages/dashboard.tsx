@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/use-toast";
 import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw } from "lucide-react";
@@ -28,6 +29,102 @@ type ContentPost = {
   scheduledFor?: string;
   instagramAccountId?: string;
 };
+
+// Component for editing Instagram account details
+function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; onSuccess: () => void }) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    username: account.username,
+    accessToken: account.accessToken,
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.username || !formData.accessToken) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please fill in all fields",
+      });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
+    try {
+      const response = await fetch(`/api/instagram-accounts/${account.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update Instagram account');
+      }
+      
+      toast({
+        title: "Success",
+        description: "Instagram account updated successfully",
+      });
+      
+      onSuccess();
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update Instagram account",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <div className="grid gap-4 py-4">
+        <div className="grid gap-2">
+          <Label htmlFor="edit-username">Instagram Username</Label>
+          <Input
+            id="edit-username"
+            value={formData.username}
+            onChange={(e) => setFormData({...formData, username: e.target.value})}
+            placeholder="your_instagram_handle"
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="edit-token">Access Token</Label>
+          <Input
+            id="edit-token"
+            type="password"
+            value={formData.accessToken}
+            onChange={(e) => setFormData({...formData, accessToken: e.target.value})}
+            placeholder="Your Instagram API access token"
+          />
+          <p className="text-sm text-muted-foreground">
+            You can get your access token from the Instagram Developer Portal.
+          </p>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              Updating...
+            </>
+          ) : (
+            "Update Account"
+          )}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -304,12 +401,78 @@ export default function Dashboard() {
                         </CardTitle>
                       </CardHeader>
                       <CardFooter className="flex justify-between">
-                        <Button variant="outline" size="sm">
-                          <Edit className="h-4 w-4 mr-2" /> Edit
-                        </Button>
-                        <Button variant="destructive" size="sm">
-                          <Trash2 className="h-4 w-4 mr-2" /> Remove
-                        </Button>
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <Edit className="h-4 w-4 mr-2" /> Edit
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Edit Instagram Account</DialogTitle>
+                              <DialogDescription>
+                                Update your Instagram account details.
+                              </DialogDescription>
+                            </DialogHeader>
+                            <EditAccountForm account={account} onSuccess={() => {
+                              // Refresh accounts after successful update
+                              fetch('/api/instagram-accounts')
+                                .then(res => res.json())
+                                .then(data => setAccounts(data))
+                                .catch(err => console.error('Failed to refresh accounts:', err));
+                            }} />
+                          </DialogContent>
+                        </Dialog>
+                        
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm">
+                              <Trash2 className="h-4 w-4 mr-2" /> Remove
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete the Instagram account "{account.username}" from your dashboard.
+                                This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={async () => {
+                                  try {
+                                    const response = await fetch(`/api/instagram-accounts/${account.id}`, {
+                                      method: 'DELETE',
+                                    });
+                                    
+                                    if (!response.ok) {
+                                      throw new Error('Failed to delete account');
+                                    }
+                                    
+                                    // Remove the account from the state
+                                    setAccounts(accounts.filter(a => a.id !== account.id));
+                                    
+                                    toast({
+                                      title: "Success",
+                                      description: `Instagram account "${account.username}" has been removed`,
+                                    });
+                                  } catch (error) {
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Error",
+                                      description: error instanceof Error ? error.message : "Failed to remove Instagram account",
+                                    });
+                                  }
+                                }}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </CardFooter>
                     </Card>
                   ))}
