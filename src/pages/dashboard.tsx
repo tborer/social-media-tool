@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/use-toast";
 import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw } from "lucide-react";
 import { useRouter } from "next/router";
@@ -329,72 +330,74 @@ export default function Dashboard() {
                         <Plus className="mr-2 h-4 w-4" /> Create New Post
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[525px]">
+                    <DialogContent className="sm:max-w-[525px] max-h-[90vh]">
                       <DialogHeader>
                         <DialogTitle>Create Instagram Post</DialogTitle>
                         <DialogDescription>
                           Craft your post content and optionally use AI to enhance it.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="caption">Caption</Label>
-                          <Textarea
-                            id="caption"
-                            value={newPost.caption}
-                            onChange={(e) => setNewPost({...newPost, caption: e.target.value})}
-                            placeholder="Write your post caption here..."
-                            className="min-h-[100px]"
-                          />
-                          <Button 
-                            variant="outline" 
-                            className="mt-2"
-                            onClick={() => {
-                              setIsCreatingPost(false);
-                              setIsGeneratingContent(true);
-                            }}
-                          >
-                            Generate with AI
-                          </Button>
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="imageUrl">Image URL</Label>
-                          <Input
-                            id="imageUrl"
-                            value={newPost.imageUrl}
-                            onChange={(e) => setNewPost({...newPost, imageUrl: e.target.value})}
-                            placeholder="https://example.com/your-image.jpg"
-                          />
-                          {newPost.imageUrl && (
-                            <div className="mt-2 aspect-square relative rounded-md overflow-hidden border">
-                              <img 
-                                src={newPost.imageUrl} 
-                                alt="Post preview" 
-                                className="object-cover w-full h-full"
-                              />
+                      <ScrollArea className="max-h-[60vh] pr-4">
+                        <div className="grid gap-4 py-4">
+                          <div className="grid gap-2">
+                            <Label htmlFor="caption">Caption</Label>
+                            <Textarea
+                              id="caption"
+                              value={newPost.caption}
+                              onChange={(e) => setNewPost({...newPost, caption: e.target.value})}
+                              placeholder="Write your post caption here..."
+                              className="min-h-[100px]"
+                            />
+                            <Button 
+                              variant="outline" 
+                              className="mt-2"
+                              onClick={() => {
+                                setIsCreatingPost(false);
+                                setIsGeneratingContent(true);
+                              }}
+                            >
+                              Generate with AI
+                            </Button>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="imageUrl">Image URL</Label>
+                            <Input
+                              id="imageUrl"
+                              value={newPost.imageUrl}
+                              onChange={(e) => setNewPost({...newPost, imageUrl: e.target.value})}
+                              placeholder="https://example.com/your-image.jpg"
+                            />
+                            {newPost.imageUrl && (
+                              <div className="mt-2 aspect-square relative rounded-md overflow-hidden border">
+                                <img 
+                                  src={newPost.imageUrl} 
+                                  alt="Post preview" 
+                                  className="object-cover w-full h-full"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          {accounts.length > 0 && (
+                            <div className="grid gap-2">
+                              <Label htmlFor="account">Instagram Account</Label>
+                              <select
+                                id="account"
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={newPost.instagramAccountId}
+                                onChange={(e) => setNewPost({...newPost, instagramAccountId: e.target.value})}
+                              >
+                                <option value="">Select an account</option>
+                                {accounts.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.username}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           )}
                         </div>
-                        {accounts.length > 0 && (
-                          <div className="grid gap-2">
-                            <Label htmlFor="account">Instagram Account</Label>
-                            <select
-                              id="account"
-                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                              value={newPost.instagramAccountId}
-                              onChange={(e) => setNewPost({...newPost, instagramAccountId: e.target.value})}
-                            >
-                              <option value="">Select an account</option>
-                              {accounts.map((account) => (
-                                <option key={account.id} value={account.id}>
-                                  {account.username}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                      <DialogFooter>
+                      </ScrollArea>
+                      <DialogFooter className="mt-4">
                         <Button variant="outline" onClick={() => setIsCreatingPost(false)}>Cancel</Button>
                         <Button onClick={handleCreatePost}>Create Post</Button>
                       </DialogFooter>
