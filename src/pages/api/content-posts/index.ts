@@ -50,13 +50,29 @@ async function getContentPosts(req: NextApiRequest, res: NextApiResponse, userId
 
 // Create a new content post for the authenticated user
 async function createContentPost(req: NextApiRequest, res: NextApiResponse, userId: string) {
-  const { caption, imageUrl, instagramAccountId } = req.body;
-  
-  if (!caption) {
-    return res.status(400).json({ error: 'Caption is required' });
-  }
-  
   try {
+    // Check if the request body is too large
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    const maxContentLength = 1024 * 1024; // 1MB limit
+    
+    if (contentLength > maxContentLength) {
+      console.error(`Error creating content post: Request body too large (${contentLength} bytes)`);
+      return res.status(413).json({ 
+        error: 'Request body too large. Image URLs may be too long or contain too much data. Try using a shorter image URL or reducing the content size.' 
+      });
+    }
+    
+    const { caption, imageUrl, instagramAccountId } = req.body;
+    
+    if (!caption) {
+      console.error('Error creating content post: Caption is required');
+      return res.status(400).json({ error: 'Caption is required' });
+    }
+    
+    // Log the size of the caption and imageUrl for debugging
+    console.info(`Caption length: ${caption.length} characters`);
+    console.info(`Image URL length: ${imageUrl ? imageUrl.length : 0} characters`);
+    
     // If instagramAccountId is provided, verify it belongs to the user
     if (instagramAccountId) {
       const account = await prisma.instagramAccount.findFirst({
@@ -67,6 +83,7 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       });
       
       if (!account) {
+        console.error(`Error creating content post: Invalid Instagram account ID: ${instagramAccountId}`);
         return res.status(400).json({ error: 'Invalid Instagram account' });
       }
     }
@@ -82,6 +99,7 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       },
     });
     
+    console.info(`Successfully created content post with ID: ${newPost.id}`);
     return res.status(201).json(newPost);
   } catch (error) {
     console.error('Error creating content post:', error);

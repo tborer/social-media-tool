@@ -135,6 +135,16 @@ export default function Dashboard() {
     }
 
     try {
+      // Check if the image URL is too long
+      if (newPost.imageUrl && newPost.imageUrl.length > 2000) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Image URL is too long. Please use a shorter URL or a different image.",
+        });
+        return;
+      }
+
       const response = await fetch('/api/content-posts', {
         method: 'POST',
         headers: {
@@ -143,9 +153,24 @@ export default function Dashboard() {
         body: JSON.stringify(newPost),
       });
       
+      let errorMessage = 'Failed to create post';
+      
+      // Handle different error responses
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create post');
+        // Try to parse the error response as JSON
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (jsonError) {
+          // If we can't parse the JSON, use the status text and code
+          if (response.status === 413) {
+            errorMessage = 'The post content is too large. Try using a shorter image URL or reducing the caption length.';
+          } else {
+            errorMessage = `${response.statusText || 'Error'} (${response.status})`;
+          }
+          console.error('Error parsing API response:', jsonError);
+        }
+        throw new Error(errorMessage);
       }
       
       const newPostData = await response.json();
@@ -158,6 +183,7 @@ export default function Dashboard() {
         description: "Post created successfully",
       });
     } catch (error) {
+      console.error('Error creating post:', error);
       toast({
         variant: "destructive",
         title: "Error",
