@@ -27,18 +27,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   
   try {
-    let generatedCaption;
+    let result;
     
     // Use the selected provider
     if (provider === 'openai') {
       console.log('Using OpenAI for caption generation');
-      generatedCaption = await generateOpenAICaption(prompt);
+      result = await generateOpenAICaption(prompt);
     } else {
       console.log('Using Gemini for caption generation');
-      generatedCaption = await generateGeminiCaption(prompt);
+      result = await generateGeminiCaption(prompt);
     }
     
-    return res.status(200).json({ caption: generatedCaption });
+    return res.status(200).json({
+      message: result.message || "Here's an analysis of your content request:",
+      caption: result.caption
+    });
   } catch (error) {
     console.error('Error generating caption:', error);
     return res.status(500).json({ error: 'Failed to generate caption' });

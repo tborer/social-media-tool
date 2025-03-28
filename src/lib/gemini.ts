@@ -1,10 +1,10 @@
 import { GeminiClient } from './gemini-client';
 
-export async function generateCaption(prompt: string): Promise<string> {
+export async function generateCaption(prompt: string): Promise<{ message: string, caption: string }> {
   try {
     const client = new GeminiClient();
-    const response = await client.generateContent(prompt, false);
-    return response.caption;
+    const response = await client.generateCaptionWithMessage(prompt);
+    return response;
   } catch (error) {
     console.error('Error generating caption:', error);
     throw new Error('Failed to generate caption');

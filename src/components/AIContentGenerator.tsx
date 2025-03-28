@@ -40,6 +40,7 @@ export default function AIContentGenerator({
   const [imageCount, setImageCount] = useState(1);
   const [accountImages, setAccountImages] = useState<InstagramImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [generatedMessage, setGeneratedMessage] = useState('');
   const [generatedCaption, setGeneratedCaption] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [selectedLLM, setSelectedLLM] = useState('gemini');
@@ -118,7 +119,8 @@ export default function AIContentGenerator({
       }
       
       const data = await response.json();
-      setGeneratedCaption(data.caption);
+      setGeneratedMessage(data.message || '');
+      setGeneratedCaption(data.caption || '');
     } catch (error) {
       toast({
         variant: "destructive",
@@ -396,13 +398,22 @@ export default function AIContentGenerator({
         </Button>
       </div>
       
-      {(generatedCaption || generatedImages.length > 0) && (
+      {(generatedMessage || generatedCaption || generatedImages.length > 0) && (
         <div className="space-y-4 border rounded-md p-4">
           <h3 className="text-lg font-medium">Generated Content</h3>
           
+          {generatedMessage && (
+            <div className="space-y-2">
+              <Label>Content Analysis</Label>
+              <div className="p-3 bg-muted rounded-md whitespace-pre-line">
+                {generatedMessage}
+              </div>
+            </div>
+          )}
+          
           {generatedCaption && (
             <div className="space-y-2">
-              <Label>Generated Caption</Label>
+              <Label>Instagram Caption</Label>
               <div className="p-3 bg-muted rounded-md whitespace-pre-line">
                 {generatedCaption}
               </div>

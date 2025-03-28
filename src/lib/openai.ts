@@ -1,10 +1,10 @@
 import { OpenAIClient } from './openai-client';
 
-export async function generateCaption(prompt: string): Promise<string> {
+export async function generateCaption(prompt: string): Promise<{ message: string, caption: string }> {
   try {
     const client = new OpenAIClient();
-    const response = await client.generateContent(prompt);
-    return response.caption;
+    const response = await client.generateCaptionWithMessage(prompt);
+    return response;
   } catch (error) {
     console.error('Error generating caption:', error);
     throw new Error('Failed to generate caption');
