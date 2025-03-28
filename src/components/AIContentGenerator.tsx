@@ -212,32 +212,33 @@ export default function AIContentGenerator({
   };
 
   return (
-    <ScrollArea className="h-[70vh] pr-4">
-      <div className="space-y-6">
-        <div className="space-y-4">
-          <Label>Select AI Model</Label>
-          <RadioGroup 
-            value={selectedLLM} 
-            onValueChange={setSelectedLLM}
-            className="flex space-x-4"
-          >
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="gemini" id="gemini" />
-              <Label htmlFor="gemini">Gemini</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="openai" id="openai" />
-              <Label htmlFor="openai">OpenAI</Label>
-            </div>
-          </RadioGroup>
-        </div>
-        
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-3">
-            <TabsTrigger value="text">Text Prompt</TabsTrigger>
-            <TabsTrigger value="existingImage">Existing Image</TabsTrigger>
-            <TabsTrigger value="uploadImage">Upload Image</TabsTrigger>
-          </TabsList>
+    <div className="space-y-6">
+      <ScrollArea className="h-[70vh] pr-4">
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <Label>Select AI Model</Label>
+            <RadioGroup 
+              value={selectedLLM} 
+              onValueChange={setSelectedLLM}
+              className="flex space-x-4"
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="gemini" id="gemini" />
+                <Label htmlFor="gemini">Gemini</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="openai" id="openai" />
+                <Label htmlFor="openai">OpenAI</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid grid-cols-3">
+              <TabsTrigger value="text">Text Prompt</TabsTrigger>
+              <TabsTrigger value="existingImage">Existing Image</TabsTrigger>
+              <TabsTrigger value="uploadImage">Upload Image</TabsTrigger>
+            </TabsList>
         
         <TabsContent value="text" className="space-y-4">
           <div className="space-y-2">
@@ -433,6 +434,8 @@ export default function AIContentGenerator({
           </Button>
         </div>
       )}
+        </div>
+      </ScrollArea>
     </div>
   );
 }
