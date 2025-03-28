@@ -158,15 +158,10 @@ export class GeminiClient {
       const imagePromises = Array(Math.min(count, 25)).fill(null).map(async () => {
         const result = await this.generateContent(prompt, true);
         
-        // Instead of returning the full base64 data URL, use a placeholder URL
-        // This prevents issues with very long URLs
         if (result.imageBase64) {
-          // In a real implementation, you would upload the image to a storage service
-          // and return the URL to the uploaded image
-          return `https://via.placeholder.com/800x800.png?text=Generated+Image`;
-          
-          // Commented out the original code that returns the full data URL
-          // return `data:image/png;base64,${result.imageBase64}`;
+          // Return actual image data URL for better user experience
+          // Note: In production, you should upload this to a storage service
+          return `data:image/png;base64,${result.imageBase64}`;
         }
         
         return '';

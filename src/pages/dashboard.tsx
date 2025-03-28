@@ -472,20 +472,66 @@ export default function Dashboard() {
                       <CardContent>
                         {post.imageUrl && (
                           <div className="aspect-square relative mb-4 rounded-md overflow-hidden">
-                            <div className="absolute inset-0 flex items-center justify-center bg-muted">
-                              <Image className="h-8 w-8 text-muted-foreground" />
-                            </div>
+                            <img 
+                              src={post.imageUrl} 
+                              alt="Post image" 
+                              className="object-cover w-full h-full"
+                              onError={(e) => {
+                                // If image fails to load, show placeholder
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-muted');
+                                const icon = document.createElement('div');
+                                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>';
+                                e.currentTarget.parentElement?.appendChild(icon);
+                              }}
+                            />
                           </div>
                         )}
                         <p className="text-sm text-muted-foreground line-clamp-3">{post.caption}</p>
                       </CardContent>
-                      <CardFooter className="flex justify-between">
-                        <Button variant="outline" size="sm">
-                          <Edit className="h-4 w-4 mr-2" /> Edit
-                        </Button>
-                        <Button variant="destructive" size="sm">
-                          <Trash2 className="h-4 w-4 mr-2" /> Delete
-                        </Button>
+                      <CardFooter className="flex flex-col gap-2">
+                        <div className="flex justify-between w-full">
+                          <Button variant="outline" size="sm">
+                            <Edit className="h-4 w-4 mr-2" /> Edit
+                          </Button>
+                          <Button variant="destructive" size="sm">
+                            <Trash2 className="h-4 w-4 mr-2" /> Delete
+                          </Button>
+                        </div>
+                        
+                        {post.status === 'DRAFT' && (
+                          <div className="flex gap-2 w-full mt-2">
+                            <Button 
+                              className="flex-1" 
+                              size="sm"
+                              onClick={() => {
+                                // Open a dialog to confirm posting now
+                                // This would be implemented in a real app
+                                toast({
+                                  title: "Feature coming soon",
+                                  description: "Post now functionality is under development",
+                                });
+                              }}
+                            >
+                              Post Now
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              className="flex-1" 
+                              size="sm"
+                              onClick={() => {
+                                // Open a dialog to schedule the post
+                                // This would be implemented in a real app
+                                toast({
+                                  title: "Feature coming soon",
+                                  description: "Schedule post functionality is under development",
+                                });
+                              }}
+                            >
+                              Schedule
+                            </Button>
+                          </div>
+                        )}
                       </CardFooter>
                     </Card>
                   ))}
