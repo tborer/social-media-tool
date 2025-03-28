@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
-import { generateCaption } from '@/lib/gemini';
+import { generateCaption as generateGeminiCaption } from '@/lib/gemini';
+import { generateCaption as generateOpenAICaption } from '@/lib/openai';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -19,15 +20,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { prompt } = req.body;
+  const { prompt, provider = 'gemini' } = req.body;
   
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
   
   try {
-    // Call Gemini to generate a caption
-    const generatedCaption = await generateCaption(prompt);
+    let generatedCaption;
+    
+    // Use the selected provider
+    if (provider === 'openai') {
+      console.log('Using OpenAI for caption generation');
+      generatedCaption = await generateOpenAICaption(prompt);
+    } else {
+      console.log('Using Gemini for caption generation');
+      generatedCaption = await generateGeminiCaption(prompt);
+    }
     
     return res.status(200).json({ caption: generatedCaption });
   } catch (error) {

@@ -7,6 +7,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/components/ui/use-toast';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, Image as ImageIcon, Upload, RefreshCw } from 'lucide-react';
 
 type InstagramAccount = {
@@ -40,6 +42,7 @@ export default function AIContentGenerator({
   const [isLoading, setIsLoading] = useState(false);
   const [generatedCaption, setGeneratedCaption] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [selectedLLM, setSelectedLLM] = useState('gemini');
 
   // Fetch Instagram images when account is selected
   useEffect(() => {
@@ -107,7 +110,7 @@ export default function AIContentGenerator({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, provider: selectedLLM }),
       });
       
       if (!response.ok) {
@@ -152,7 +155,7 @@ export default function AIContentGenerator({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt, count: imageCount }),
+        body: JSON.stringify({ prompt, count: imageCount, provider: selectedLLM }),
       });
       
       if (!response.ok) {
@@ -209,13 +212,32 @@ export default function AIContentGenerator({
   };
 
   return (
-    <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-3">
-          <TabsTrigger value="text">Text Prompt</TabsTrigger>
-          <TabsTrigger value="existingImage">Existing Image</TabsTrigger>
-          <TabsTrigger value="uploadImage">Upload Image</TabsTrigger>
-        </TabsList>
+    <ScrollArea className="h-[70vh] pr-4">
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <Label>Select AI Model</Label>
+          <RadioGroup 
+            value={selectedLLM} 
+            onValueChange={setSelectedLLM}
+            className="flex space-x-4"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="gemini" id="gemini" />
+              <Label htmlFor="gemini">Gemini</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="openai" id="openai" />
+              <Label htmlFor="openai">OpenAI</Label>
+            </div>
+          </RadioGroup>
+        </div>
+        
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid grid-cols-3">
+            <TabsTrigger value="text">Text Prompt</TabsTrigger>
+            <TabsTrigger value="existingImage">Existing Image</TabsTrigger>
+            <TabsTrigger value="uploadImage">Upload Image</TabsTrigger>
+          </TabsList>
         
         <TabsContent value="text" className="space-y-4">
           <div className="space-y-2">

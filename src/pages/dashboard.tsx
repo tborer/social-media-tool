@@ -304,7 +304,7 @@ export default function Dashboard() {
                         <RefreshCw className="mr-2 h-4 w-4" /> AI Generate
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[700px]">
+                    <DialogContent className="sm:max-w-[700px] max-h-[90vh]">
                       <DialogHeader>
                         <DialogTitle>Generate Instagram Content with AI</DialogTitle>
                         <DialogDescription>
@@ -317,7 +317,7 @@ export default function Dashboard() {
                           onGeneratedContent={handleGeneratedContent} 
                         />
                       </div>
-                      <DialogFooter>
+                      <DialogFooter className="mt-4">
                         <Button variant="outline" onClick={() => setIsGeneratingContent(false)}>Cancel</Button>
                       </DialogFooter>
                     </DialogContent>

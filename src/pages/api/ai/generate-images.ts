@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
-import { generateImages } from '@/lib/gemini';
+import { generateImages as generateGeminiImages } from '@/lib/gemini';
+import { generateImages as generateOpenAIImages } from '@/lib/openai';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -19,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { prompt, count = 1 } = req.body;
+  const { prompt, count = 1, provider = 'gemini' } = req.body;
   
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -29,8 +30,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const imageCount = Math.min(Math.max(1, Number(count)), 25);
   
   try {
-    // Call Gemini to generate images
-    const images = await generateImages(prompt, imageCount);
+    let images;
+    
+    // Use the selected provider
+    if (provider === 'openai') {
+      console.log('Using OpenAI for image generation');
+      images = await generateOpenAIImages(prompt, imageCount);
+    } else {
+      console.log('Using Gemini for image generation');
+      images = await generateGeminiImages(prompt, imageCount);
+    }
     
     return res.status(200).json({ images });
   } catch (error) {
