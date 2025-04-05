@@ -1,14 +1,29 @@
 import OpenAI from 'openai';
+import prisma from '@/lib/prisma';
 
 export class OpenAIClient {
   private client: OpenAI;
 
-  constructor() {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not defined');
+  constructor(userId?: string) {
+    this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+
+  async initialize(userId?: string) {
+    // If userId is provided, try to use the user's API key
+    if (userId) {
+      try {
+        const userSettings = await prisma.userSettings.findUnique({
+          where: { userId },
+        });
+
+        if (userSettings?.openaiApiKey) {
+          this.client = new OpenAI({ apiKey: userSettings.openaiApiKey });
+        }
+      } catch (error) {
+        console.error('Error initializing OpenAI client with user API key:', error);
+        // Fall back to default API key (already initialized)
+      }
     }
-    this.client = new OpenAI({ apiKey });
   }
 
   async generateCaptionWithMessage(prompt: string): Promise<{ message: string, caption: string }> {

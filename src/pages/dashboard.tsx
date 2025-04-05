@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/use-toast";
-import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw } from "lucide-react";
+import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings } from "lucide-react";
 import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
@@ -320,14 +320,25 @@ export default function Dashboard() {
         <header className="border-b">
           <div className="container flex h-16 items-center justify-between py-4">
             <h1 className="text-2xl font-bold">InstaCreate Dashboard</h1>
-            <Button
-              onClick={() => {
-                signOut();
-              }}
-              variant="ghost"
-            >
-              Log Out
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => router.push('/settings')}
+                variant="outline"
+                size="sm"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Button>
+              <Button
+                onClick={() => {
+                  signOut();
+                }}
+                variant="ghost"
+                size="sm"
+              >
+                Log Out
+              </Button>
+            </div>
           </div>
         </header>
         

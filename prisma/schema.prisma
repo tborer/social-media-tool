@@ -15,6 +15,7 @@ model User {
   createdAt         DateTime           @default(now())
   instagramAccounts InstagramAccount[]
   contentPosts      ContentPost[]
+  userSettings      UserSettings?
 }
 
 model InstagramAccount {
@@ -49,4 +50,19 @@ enum PostStatus {
   SCHEDULED
   PUBLISHED
   FAILED
+}
+
+model UserSettings {
+  id                String    @id @default(uuid())
+  userId            String    @unique @db.Uuid
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  openaiApiKey      String?
+  geminiApiKey      String?
+  openaiMonthlyLimit Int      @default(100)
+  geminiMonthlyLimit Int      @default(100)
+  openaiUsageCount  Int       @default(0)
+  geminiUsageCount  Int       @default(0)
+  usageResetDate    DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }

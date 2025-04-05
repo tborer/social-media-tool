@@ -1,4 +1,5 @@
 import { Buffer } from 'buffer';
+import prisma from '@/lib/prisma';
 
 export class GeminiClient {
   private apiKey: string;
@@ -6,11 +7,29 @@ export class GeminiClient {
   private model: string = 'gemini-2.0-flash-exp-image-generation';
 
   constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const defaultApiKey = process.env.GEMINI_API_KEY;
+    if (!defaultApiKey) {
       throw new Error('GEMINI_API_KEY is not defined');
     }
-    this.apiKey = apiKey;
+    this.apiKey = defaultApiKey;
+  }
+
+  async initialize(userId?: string) {
+    // If userId is provided, try to use the user's API key
+    if (userId) {
+      try {
+        const userSettings = await prisma.userSettings.findUnique({
+          where: { userId },
+        });
+
+        if (userSettings?.geminiApiKey) {
+          this.apiKey = userSettings.geminiApiKey;
+        }
+      } catch (error) {
+        console.error('Error initializing Gemini client with user API key:', error);
+        // Fall back to default API key (already initialized)
+      }
+    }
   }
 
   async generateCaptionWithMessage(prompt: string): Promise<{ message: string, caption: string }> {
