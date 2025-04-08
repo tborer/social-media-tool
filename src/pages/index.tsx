@@ -73,6 +73,19 @@ export default function Home() {
               </CardHeader>
             </Card>
           </div>
+          
+          {/* Temporary Developer Access Button */}
+          <div className="mt-10 border-t border-dashed border-gray-600 pt-6 text-center max-w-4xl w-full">
+            <h3 className="text-lg font-semibold mb-2">Developer Access</h3>
+            <Link href="/dashboard?dev_access=true" passHref>
+              <Button variant="outline" className="bg-amber-600 hover:bg-amber-700 text-white">
+                <span className="mr-2">⚠️</span> Temporary Dashboard Access
+              </Button>
+            </Link>
+            <p className="text-xs text-muted-foreground mt-2">
+              For development purposes only - bypasses authentication
+            </p>
+          </div>
         </main>
       </div>
     </>
