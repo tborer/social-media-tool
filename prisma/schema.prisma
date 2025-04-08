@@ -35,6 +35,7 @@ model ContentPost {
   id                 String           @id @default(uuid())
   caption            String
   imageUrl           String?
+  contentType        ContentType      @default(IMAGE)
   status             PostStatus       @default(DRAFT)
   scheduledFor       DateTime?
   createdAt          DateTime         @default(now())
@@ -50,6 +51,12 @@ enum PostStatus {
   SCHEDULED
   PUBLISHED
   FAILED
+}
+
+enum ContentType {
+  IMAGE
+  VIDEO
+  BLOG_POST
 }
 
 model UserSettings {

@@ -25,6 +25,7 @@ type ContentPost = {
   id: string;
   caption: string;
   imageUrl?: string;
+  contentType: "IMAGE" | "VIDEO" | "BLOG_POST";
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
   instagramAccountId?: string;
@@ -136,7 +137,7 @@ export default function Dashboard() {
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [newAccount, setNewAccount] = useState({ username: "", accessToken: "" });
   const [isCreatingPost, setIsCreatingPost] = useState(false);
-  const [newPost, setNewPost] = useState({ caption: "", imageUrl: "", instagramAccountId: "" });
+  const [newPost, setNewPost] = useState({ caption: "", imageUrl: "", instagramAccountId: "", contentType: "IMAGE" });
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
 
@@ -246,6 +247,7 @@ export default function Dashboard() {
       const postData = {
         caption: newPost.caption,
         imageUrl: newPost.imageUrl,
+        contentType: newPost.contentType,
         // Only include instagramAccountId if it's not empty
         ...(newPost.instagramAccountId && newPost.instagramAccountId.trim() !== '' 
           ? { instagramAccountId: newPost.instagramAccountId } 
@@ -299,11 +301,12 @@ export default function Dashboard() {
     }
   };
   
-  const handleGeneratedContent = (content: { caption: string; imageUrls: string[] }) => {
+  const handleGeneratedContent = (content: { caption: string; imageUrls: string[]; contentType: string }) => {
     setNewPost({
       ...newPost,
       caption: content.caption,
       imageUrl: content.imageUrls[0] || "",
+      contentType: content.contentType,
     });
     setIsGeneratingContent(false);
     setIsCreatingPost(true);
@@ -347,6 +350,7 @@ export default function Dashboard() {
             <TabsList className="mb-6">
               <TabsTrigger value="accounts">Instagram Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
+              <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
             </TabsList>
             
             <TabsContent value="accounts">
@@ -549,6 +553,29 @@ export default function Dashboard() {
                       </DialogHeader>
                       <ScrollArea className="max-h-[60vh] pr-4">
                         <div className="grid gap-4 py-4">
+                          {/* Content Type Selection */}
+                          <div className="grid gap-2">
+                            <Label htmlFor="content-type">Content Type</Label>
+                            <RadioGroup 
+                              value={newPost.contentType} 
+                              onValueChange={(value) => setNewPost({...newPost, contentType: value})}
+                              className="flex flex-wrap gap-4"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="IMAGE" id="create-image-type" />
+                                <Label htmlFor="create-image-type">Image</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="VIDEO" id="create-video-type" />
+                                <Label htmlFor="create-video-type">Video</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="BLOG_POST" id="create-blog-type" />
+                                <Label htmlFor="create-blog-type">Blog Post</Label>
+                              </div>
+                            </RadioGroup>
+                          </div>
+                          
                           <div className="grid gap-2">
                             <Label htmlFor="caption">Caption</Label>
                             <Textarea
@@ -627,14 +654,23 @@ export default function Dashboard() {
                       <CardHeader>
                         <CardTitle className="flex items-center">
                           <div className="flex-1 truncate">{post.caption.substring(0, 30)}...</div>
-                          <span className={`ml-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                            post.status === 'DRAFT' ? 'bg-yellow-100 text-yellow-800' :
-                            post.status === 'SCHEDULED' ? 'bg-blue-100 text-blue-800' :
-                            post.status === 'PUBLISHED' ? 'bg-green-100 text-green-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {post.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              post.contentType === 'IMAGE' ? 'bg-purple-100 text-purple-800' :
+                              post.contentType === 'VIDEO' ? 'bg-blue-100 text-blue-800' :
+                              'bg-green-100 text-green-800'
+                            }`}>
+                              {post.contentType.replace('_', ' ')}
+                            </span>
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              post.status === 'DRAFT' ? 'bg-yellow-100 text-yellow-800' :
+                              post.status === 'SCHEDULED' ? 'bg-blue-100 text-blue-800' :
+                              post.status === 'PUBLISHED' ? 'bg-green-100 text-green-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {post.status}
+                            </span>
+                          </div>
                         </CardTitle>
                         {post.scheduledFor && (
                           <CardDescription className="flex items-center">
@@ -862,6 +898,79 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               )}
+            </TabsContent>
+            
+            <TabsContent value="wordpress">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold">WordPress Blog</h2>
+                <div className="flex gap-2">
+                  <Dialog open={isGeneratingContent} onOpenChange={setIsGeneratingContent}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline">
+                        <RefreshCw className="mr-2 h-4 w-4" /> AI Generate
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[700px] max-h-[90vh]">
+                      <DialogHeader>
+                        <DialogTitle>Generate Blog Content with AI</DialogTitle>
+                        <DialogDescription>
+                          Use AI to generate blog posts for your WordPress site.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <AIContentGenerator 
+                          instagramAccounts={accounts} 
+                          onGeneratedContent={handleGeneratedContent} 
+                        />
+                      </div>
+                      <DialogFooter className="mt-4">
+                        <Button variant="outline" onClick={() => setIsGeneratingContent(false)}>Cancel</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" /> Create Blog Post
+                  </Button>
+                </div>
+              </div>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle>WordPress Integration</CardTitle>
+                  <CardDescription>
+                    Connect your WordPress site to publish blog posts directly from InstaCreate.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col gap-4">
+                    <div className="p-6 border rounded-md text-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                        <path d="M2 17l10 5 10-5"></path>
+                        <path d="M2 12l10 5 10-5"></path>
+                      </svg>
+                      <h3 className="text-lg font-medium mb-2">WordPress Integration Coming Soon</h3>
+                      <p className="text-muted-foreground mb-4">
+                        The WordPress integration is currently under development. You'll soon be able to connect your WordPress site and publish blog posts directly.
+                      </p>
+                      <Button variant="outline" disabled>
+                        Connect WordPress Site
+                      </Button>
+                    </div>
+                    
+                    <div className="grid gap-4">
+                      <h3 className="text-lg font-medium">Blog Post Ideas</h3>
+                      <p className="text-muted-foreground">
+                        You can still generate blog post content with AI and save it for later use.
+                      </p>
+                      <Button onClick={() => setIsGeneratingContent(true)}>
+                        Generate Blog Post Ideas
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </main>

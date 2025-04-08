@@ -24,7 +24,7 @@ type InstagramImage = {
 
 type AIContentGeneratorProps = {
   instagramAccounts: InstagramAccount[];
-  onGeneratedContent: (content: { caption: string; imageUrls: string[] }) => void;
+  onGeneratedContent: (content: { caption: string; imageUrls: string[]; contentType: string }) => void;
 };
 
 export default function AIContentGenerator({ 
@@ -44,6 +44,7 @@ export default function AIContentGenerator({
   const [generatedCaption, setGeneratedCaption] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [selectedLLM, setSelectedLLM] = useState('gemini');
+  const [contentType, setContentType] = useState('IMAGE');
 
   // Fetch Instagram images when account is selected
   useEffect(() => {
@@ -213,6 +214,7 @@ export default function AIContentGenerator({
     onGeneratedContent({
       caption: generatedCaption,
       imageUrls: generatedImages,
+      contentType: contentType,
     });
   };
 
@@ -220,6 +222,29 @@ export default function AIContentGenerator({
     <div className="space-y-6">
       <ScrollArea className="h-[70vh] pr-4">
         <div className="space-y-6">
+          {/* Content Type Selection */}
+          <div className="space-y-4">
+            <Label>Content Type</Label>
+            <RadioGroup 
+              value={contentType} 
+              onValueChange={setContentType}
+              className="flex flex-wrap gap-4"
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="IMAGE" id="image-type" />
+                <Label htmlFor="image-type">Image</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="VIDEO" id="video-type" />
+                <Label htmlFor="video-type">Video</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="BLOG_POST" id="blog-type" />
+                <Label htmlFor="blog-type">Blog Post</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          
           <div className="space-y-4">
             <Label>Select AI Model</Label>
             <RadioGroup 
