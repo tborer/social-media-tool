@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -284,7 +285,7 @@ export default function Dashboard() {
       
       const newPostData = await response.json();
       setPosts([...posts, newPostData]);
-      setNewPost({ caption: "", imageUrl: "", instagramAccountId: "" });
+      setNewPost({ caption: "", imageUrl: "", instagramAccountId: "", contentType: "IMAGE" });
       setIsCreatingPost(false);
       
       toast({
