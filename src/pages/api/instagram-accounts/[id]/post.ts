@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
+import { LogType } from '@prisma/client';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Only allow POST requests
@@ -65,11 +66,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // For image posts
       if (contentPost.imageUrl) {
         // First, upload the image to Instagram
-        const imageUploadResponse = await fetch(`https://graph.facebook.com/v18.0/me/media?image_url=${encodeURIComponent(contentPost.imageUrl)}&caption=${encodeURIComponent(contentPost.caption)}&access_token=${instagramAccount.accessToken}`, {
+        const imageUploadUrl = `https://graph.facebook.com/v18.0/me/media?image_url=${encodeURIComponent(contentPost.imageUrl)}&caption=${encodeURIComponent(contentPost.caption)}&access_token=${instagramAccount.accessToken}`;
+        
+        const imageUploadResponse = await fetch(imageUploadUrl, {
           method: 'POST',
         });
 
         const imageUploadData = await imageUploadResponse.json();
+        
+        // Log the image upload request and response
+        await prisma.log.create({
+          data: {
+            type: LogType.CONTENT_POST,
+            endpoint: 'Instagram Media Upload',
+            requestData: {
+              url: 'https://graph.facebook.com/v18.0/me/media',
+              method: 'POST',
+              params: {
+                image_url: contentPost.imageUrl,
+                caption: contentPost.caption,
+                // Don't log the actual access token for security
+                access_token: '[REDACTED]'
+              }
+            },
+            response: imageUploadData,
+            status: imageUploadResponse.status,
+            userId: user.id,
+          }
+        });
 
         if (!imageUploadResponse.ok) {
           console.error('Instagram API error (image upload):', imageUploadData);
@@ -80,11 +104,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         // Then publish the container
-        const publishResponse = await fetch(`https://graph.facebook.com/v18.0/me/media_publish?creation_id=${imageUploadData.id}&access_token=${instagramAccount.accessToken}`, {
+        const publishUrl = `https://graph.facebook.com/v18.0/me/media_publish?creation_id=${imageUploadData.id}&access_token=${instagramAccount.accessToken}`;
+        
+        const publishResponse = await fetch(publishUrl, {
           method: 'POST',
         });
 
         const publishData = await publishResponse.json();
+        
+        // Log the publish request and response
+        await prisma.log.create({
+          data: {
+            type: LogType.CONTENT_POST,
+            endpoint: 'Instagram Media Publish',
+            requestData: {
+              url: 'https://graph.facebook.com/v18.0/me/media_publish',
+              method: 'POST',
+              params: {
+                creation_id: imageUploadData.id,
+                // Don't log the actual access token for security
+                access_token: '[REDACTED]'
+              }
+            },
+            response: publishData,
+            status: publishResponse.status,
+            userId: user.id,
+          }
+        });
 
         if (!publishResponse.ok) {
           console.error('Instagram API error (publishing):', publishData);
@@ -110,11 +156,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
       } else {
         // For caption-only posts (no image)
-        const captionOnlyResponse = await fetch(`https://graph.facebook.com/v18.0/me/media?caption=${encodeURIComponent(contentPost.caption)}&access_token=${instagramAccount.accessToken}`, {
+        const captionOnlyUrl = `https://graph.facebook.com/v18.0/me/media?caption=${encodeURIComponent(contentPost.caption)}&access_token=${instagramAccount.accessToken}`;
+        
+        const captionOnlyResponse = await fetch(captionOnlyUrl, {
           method: 'POST',
         });
 
         const captionOnlyData = await captionOnlyResponse.json();
+        
+        // Log the caption-only post request and response
+        await prisma.log.create({
+          data: {
+            type: LogType.CONTENT_POST,
+            endpoint: 'Instagram Caption-Only Post',
+            requestData: {
+              url: 'https://graph.facebook.com/v18.0/me/media',
+              method: 'POST',
+              params: {
+                caption: contentPost.caption,
+                // Don't log the actual access token for security
+                access_token: '[REDACTED]'
+              }
+            },
+            response: captionOnlyData,
+            status: captionOnlyResponse.status,
+            userId: user.id,
+          }
+        });
 
         if (!captionOnlyResponse.ok) {
           console.error('Instagram API error (caption-only post):', captionOnlyData);

@@ -16,6 +16,7 @@ model User {
   instagramAccounts InstagramAccount[]
   contentPosts      ContentPost[]
   userSettings      UserSettings?
+  logs              Log[]
 }
 
 model InstagramAccount {
@@ -57,6 +58,24 @@ enum ContentType {
   IMAGE
   VIDEO
   BLOG_POST
+}
+
+enum LogType {
+  CONTENT_POST
+  AI_GENERATION
+}
+
+model Log {
+  id          String    @id @default(uuid())
+  type        LogType
+  endpoint    String
+  requestData Json
+  response    Json?
+  status      Int?
+  error       String?
+  userId      String    @db.Uuid
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
 }
 
 model UserSettings {

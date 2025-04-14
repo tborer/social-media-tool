@@ -15,6 +15,7 @@ import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings } f
 import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
+import LogsViewer from "@/components/LogsViewer";
 
 type InstagramAccount = {
   id: string;
@@ -352,6 +353,7 @@ export default function Dashboard() {
               <TabsTrigger value="accounts">Instagram Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
+              <TabsTrigger value="logging">Logging</TabsTrigger>
             </TabsList>
             
             <TabsContent value="accounts">
@@ -972,6 +974,10 @@ export default function Dashboard() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+            
+            <TabsContent value="logging">
+              <LogsViewer />
             </TabsContent>
           </Tabs>
         </main>

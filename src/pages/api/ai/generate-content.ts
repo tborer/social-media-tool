@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import { GeminiClient } from '@/lib/gemini-client';
 import prisma from '@/lib/prisma';
+import { LogType } from '@prisma/client';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -62,7 +63,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Call Gemini to generate content
     const client = new GeminiClient();
     await client.initialize(user.id);
-    const result = await client.generateContent(prompt, generateImage);
+    
+    let result;
+    try {
+      result = await client.generateContent(prompt, generateImage);
+      
+      // Log the successful AI generation request
+      await prisma.log.create({
+        data: {
+          type: LogType.AI_GENERATION,
+          endpoint: 'Gemini Content Generation',
+          requestData: {
+            prompt,
+            generateImage,
+          },
+          response: {
+            success: true,
+            captionLength: result.caption.length,
+            hasImage: !!result.imageBase64,
+          },
+          status: 200,
+          userId: user.id,
+        }
+      });
+    } catch (error) {
+      // Log the failed AI generation request
+      await prisma.log.create({
+        data: {
+          type: LogType.AI_GENERATION,
+          endpoint: 'Gemini Content Generation',
+          requestData: {
+            prompt,
+            generateImage,
+          },
+          error: error instanceof Error ? error.message : 'Unknown error',
+          status: 500,
+          userId: user.id,
+        }
+      });
+      throw error; // Re-throw to be caught by the outer catch block
+    }
     
     // Increment usage counter
     if (userSettings) {
