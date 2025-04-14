@@ -17,10 +17,11 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
 import LogsViewer from "@/components/LogsViewer";
 
-type InstagramAccount = {
+type SocialMediaAccount = {
   id: string;
   username: string;
   accessToken: string;
+  accountType: "INSTAGRAM" | "BLUESKY" | "X";
 };
 
 type ContentPost = {
@@ -30,15 +31,16 @@ type ContentPost = {
   contentType: "IMAGE" | "VIDEO" | "BLOG_POST";
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
-  instagramAccountId?: string;
+  socialMediaAccountId?: string;
 };
 
-// Component for editing Instagram account details
-function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; onSuccess: () => void }) {
+// Component for editing social media account details
+function EditAccountForm({ account, onSuccess }: { account: SocialMediaAccount; onSuccess: () => void }) {
   const { toast } = useToast();
   const [formData, setFormData] = useState({
     username: account.username,
     accessToken: account.accessToken,
+    accountType: account.accountType,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -57,7 +59,7 @@ function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; on
     setIsSubmitting(true);
     
     try {
-      const response = await fetch(`/api/instagram-accounts/${account.id}`, {
+      const response = await fetch(`/api/social-media-accounts/${account.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -67,12 +69,12 @@ function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; on
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update Instagram account');
+        throw new Error(errorData.error || 'Failed to update social media account');
       }
       
       toast({
         title: "Success",
-        description: "Instagram account updated successfully",
+        description: "Social media account updated successfully",
       });
       
       onSuccess();
@@ -80,7 +82,7 @@ function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; on
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update Instagram account",
+        description: error instanceof Error ? error.message : "Failed to update social media account",
       });
     } finally {
       setIsSubmitting(false);
@@ -91,12 +93,25 @@ function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; on
     <form onSubmit={handleSubmit}>
       <div className="grid gap-4 py-4">
         <div className="grid gap-2">
-          <Label htmlFor="edit-username">Instagram Username</Label>
+          <Label htmlFor="edit-account-type">Account Type</Label>
+          <select
+            id="edit-account-type"
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            value={formData.accountType}
+            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "BLUESKY" | "X"})}
+          >
+            <option value="INSTAGRAM">Instagram</option>
+            <option value="BLUESKY">Bluesky</option>
+            <option value="X">X</option>
+          </select>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="edit-username">Username</Label>
           <Input
             id="edit-username"
             value={formData.username}
             onChange={(e) => setFormData({...formData, username: e.target.value})}
-            placeholder="your_instagram_handle"
+            placeholder="your_username"
           />
         </div>
         <div className="grid gap-2">
@@ -106,10 +121,10 @@ function EditAccountForm({ account, onSuccess }: { account: InstagramAccount; on
             type="password"
             value={formData.accessToken}
             onChange={(e) => setFormData({...formData, accessToken: e.target.value})}
-            placeholder="Your Instagram API access token"
+            placeholder="Your API access token"
           />
           <p className="text-sm text-muted-foreground">
-            You can get your access token from the Instagram Developer Portal.
+            You can get your access token from the respective platform's developer portal.
           </p>
         </div>
       </div>
@@ -134,27 +149,27 @@ export default function Dashboard() {
   const { toast } = useToast();
   const router = useRouter();
   
-  const [accounts, setAccounts] = useState<InstagramAccount[]>([]);
+  const [accounts, setAccounts] = useState<SocialMediaAccount[]>([]);
   const [posts, setPosts] = useState<ContentPost[]>([]);
   const [isAddingAccount, setIsAddingAccount] = useState(false);
-  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "" });
+  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "BLUESKY" | "X" });
   const [isCreatingPost, setIsCreatingPost] = useState(false);
-  const [newPost, setNewPost] = useState({ caption: "", imageUrl: "", instagramAccountId: "", contentType: "IMAGE" });
+  const [newPost, setNewPost] = useState({ caption: "", imageUrl: "", socialMediaAccountId: "", contentType: "IMAGE" });
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
 
-  // Fetch Instagram accounts and content posts
+  // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
       const fetchData = async () => {
         try {
-          // Fetch Instagram accounts
-          const accountsResponse = await fetch('/api/instagram-accounts');
+          // Fetch social media accounts
+          const accountsResponse = await fetch('/api/social-media-accounts');
           if (accountsResponse.ok) {
             const accountsData = await accountsResponse.json();
             setAccounts(accountsData);
           } else {
-            console.error('Failed to fetch Instagram accounts');
+            console.error('Failed to fetch social media accounts');
           }
           
           // Fetch content posts
@@ -183,7 +198,7 @@ export default function Dashboard() {
   }, [user, toast]);
 
   const handleAddAccount = async () => {
-    if (!newAccount.username || !newAccount.accessToken) {
+    if (!newAccount.username || !newAccount.accessToken || !newAccount.accountType) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -193,7 +208,7 @@ export default function Dashboard() {
     }
 
     try {
-      const response = await fetch('/api/instagram-accounts', {
+      const response = await fetch('/api/social-media-accounts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -203,23 +218,23 @@ export default function Dashboard() {
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to add Instagram account');
+        throw new Error(errorData.error || 'Failed to add social media account');
       }
       
       const newAccountData = await response.json();
       setAccounts([...accounts, newAccountData]);
-      setNewAccount({ username: "", accessToken: "" });
+      setNewAccount({ username: "", accessToken: "", accountType: "INSTAGRAM" });
       setIsAddingAccount(false);
       
       toast({
         title: "Success",
-        description: "Instagram account added successfully",
+        description: "Social media account added successfully",
       });
     } catch (error) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add Instagram account",
+        description: error instanceof Error ? error.message : "Failed to add social media account",
       });
     }
   };
@@ -250,9 +265,9 @@ export default function Dashboard() {
         caption: newPost.caption,
         imageUrl: newPost.imageUrl,
         contentType: newPost.contentType,
-        // Only include instagramAccountId if it's not empty
-        ...(newPost.instagramAccountId && newPost.instagramAccountId.trim() !== '' 
-          ? { instagramAccountId: newPost.instagramAccountId } 
+        // Only include socialMediaAccountId if it's not empty
+        ...(newPost.socialMediaAccountId && newPost.socialMediaAccountId.trim() !== '' 
+          ? { socialMediaAccountId: newPost.socialMediaAccountId } 
           : {})
       };
 
@@ -286,7 +301,7 @@ export default function Dashboard() {
       
       const newPostData = await response.json();
       setPosts([...posts, newPostData]);
-      setNewPost({ caption: "", imageUrl: "", instagramAccountId: "", contentType: "IMAGE" });
+      setNewPost({ caption: "", imageUrl: "", socialMediaAccountId: "", contentType: "IMAGE" });
       setIsCreatingPost(false);
       
       toast({
@@ -350,7 +365,7 @@ export default function Dashboard() {
         <main className="flex-1 container py-6">
           <Tabs defaultValue="accounts">
             <TabsList className="mb-6">
-              <TabsTrigger value="accounts">Instagram Accounts</TabsTrigger>
+              <TabsTrigger value="accounts">Social Media Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
               <TabsTrigger value="logging">Logging</TabsTrigger>
@@ -358,7 +373,7 @@ export default function Dashboard() {
             
             <TabsContent value="accounts">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold">Your Instagram Accounts</h2>
+                <h2 className="text-3xl font-bold">Your Social Media Accounts</h2>
                 <Dialog open={isAddingAccount} onOpenChange={setIsAddingAccount}>
                   <DialogTrigger asChild>
                     <Button>
@@ -367,19 +382,32 @@ export default function Dashboard() {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Add Instagram Account</DialogTitle>
+                      <DialogTitle>Add Social Media Account</DialogTitle>
                       <DialogDescription>
-                        Enter your Instagram credentials to connect your account.
+                        Enter your social media credentials to connect your account.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid gap-2">
-                        <Label htmlFor="username">Instagram Username</Label>
+                        <Label htmlFor="account-type">Type of Account</Label>
+                        <select
+                          id="account-type"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          value={newAccount.accountType}
+                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "BLUESKY" | "X"})}
+                        >
+                          <option value="INSTAGRAM">Instagram</option>
+                          <option value="BLUESKY">Bluesky</option>
+                          <option value="X">X</option>
+                        </select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="username">Username</Label>
                         <Input
                           id="username"
                           value={newAccount.username}
                           onChange={(e) => setNewAccount({...newAccount, username: e.target.value})}
-                          placeholder="your_instagram_handle"
+                          placeholder="your_username"
                         />
                       </div>
                       <div className="grid gap-2">
@@ -389,10 +417,10 @@ export default function Dashboard() {
                           type="password"
                           value={newAccount.accessToken}
                           onChange={(e) => setNewAccount({...newAccount, accessToken: e.target.value})}
-                          placeholder="Your Instagram API access token"
+                          placeholder="Your API access token"
                         />
                         <p className="text-sm text-muted-foreground">
-                          You can get your access token from the Instagram Developer Portal.
+                          You can get your access token from the respective platform's developer portal.
                         </p>
                       </div>
                     </div>
@@ -414,9 +442,15 @@ export default function Dashboard() {
                     <Card key={account.id}>
                       <CardHeader>
                         <CardTitle className="flex items-center">
-                          <Instagram className="h-5 w-5 mr-2 text-pink-500" />
+                          {account.accountType === "INSTAGRAM" && <Instagram className="h-5 w-5 mr-2 text-pink-500" />}
+                          {account.accountType === "BLUESKY" && <svg className="h-5 w-5 mr-2 text-blue-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/><path d="M13 7h-2v6h6v-2h-4z"/></svg>}
+                          {account.accountType === "X" && <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>}
                           {account.username}
                         </CardTitle>
+                        <CardDescription>
+                          {account.accountType === "INSTAGRAM" ? "Instagram" : 
+                           account.accountType === "BLUESKY" ? "Bluesky" : "X"}
+                        </CardDescription>
                       </CardHeader>
                       <CardFooter className="flex justify-between">
                         <Dialog>
@@ -427,14 +461,14 @@ export default function Dashboard() {
                           </DialogTrigger>
                           <DialogContent>
                             <DialogHeader>
-                              <DialogTitle>Edit Instagram Account</DialogTitle>
+                              <DialogTitle>Edit Social Media Account</DialogTitle>
                               <DialogDescription>
-                                Update your Instagram account details.
+                                Update your social media account details.
                               </DialogDescription>
                             </DialogHeader>
                             <EditAccountForm account={account} onSuccess={() => {
                               // Refresh accounts after successful update
-                              fetch('/api/instagram-accounts')
+                              fetch('/api/social-media-accounts')
                                 .then(res => res.json())
                                 .then(data => setAccounts(data))
                                 .catch(err => console.error('Failed to refresh accounts:', err));
@@ -452,7 +486,8 @@ export default function Dashboard() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will permanently delete the Instagram account "{account.username}" from your dashboard.
+                                This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" : 
+                                account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
                                 This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -461,7 +496,7 @@ export default function Dashboard() {
                               <AlertDialogAction
                                 onClick={async () => {
                                   try {
-                                    const response = await fetch(`/api/instagram-accounts/${account.id}`, {
+                                    const response = await fetch(`/api/social-media-accounts/${account.id}`, {
                                       method: 'DELETE',
                                     });
                                     
@@ -474,13 +509,14 @@ export default function Dashboard() {
                                     
                                     toast({
                                       title: "Success",
-                                      description: `Instagram account "${account.username}" has been removed`,
+                                      description: `${account.accountType === "INSTAGRAM" ? "Instagram" : 
+                                      account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
                                     });
                                   } catch (error) {
                                     toast({
                                       variant: "destructive",
                                       title: "Error",
-                                      description: error instanceof Error ? error.message : "Failed to remove Instagram account",
+                                      description: error instanceof Error ? error.message : "Failed to remove social media account",
                                     });
                                   }
                                 }}
@@ -498,9 +534,9 @@ export default function Dashboard() {
               ) : (
                 <Card>
                   <CardHeader>
-                    <CardTitle>No Instagram Accounts</CardTitle>
+                    <CardTitle>No Social Media Accounts</CardTitle>
                     <CardDescription>
-                      Add your first Instagram account to start creating content.
+                      Add your first social media account to start creating content.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -722,25 +758,26 @@ export default function Dashboard() {
                               </DialogTrigger>
                               <DialogContent>
                                 <DialogHeader>
-                                  <DialogTitle>Post to Instagram</DialogTitle>
+                                  <DialogTitle>Post to Social Media</DialogTitle>
                                   <DialogDescription>
-                                    Select an Instagram account to post this content to.
+                                    Select a social media account to post this content to.
                                   </DialogDescription>
                                 </DialogHeader>
                                 <div className="py-4">
                                   {accounts.length > 0 ? (
                                     <div className="grid gap-4">
                                       <div className="grid gap-2">
-                                        <Label htmlFor="post-account">Instagram Account</Label>
+                                        <Label htmlFor="post-account">Social Media Account</Label>
                                         <select
                                           id="post-account"
                                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                          defaultValue={post.instagramAccountId || ""}
+                                          defaultValue={post.socialMediaAccountId || ""}
                                         >
                                           <option value="" disabled>Select an account</option>
                                           {accounts.map((account) => (
                                             <option key={account.id} value={account.id}>
-                                              {account.username}
+                                              {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
+                                               account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                             </option>
                                           ))}
                                         </select>
@@ -763,7 +800,7 @@ export default function Dashboard() {
                                     </div>
                                   ) : (
                                     <div className="text-center py-4">
-                                      <p className="text-muted-foreground">You need to add an Instagram account first.</p>
+                                      <p className="text-muted-foreground">You need to add a social media account first.</p>
                                       <Button 
                                         variant="outline" 
                                         className="mt-2"
@@ -771,7 +808,7 @@ export default function Dashboard() {
                                           setIsAddingAccount(true);
                                         }}
                                       >
-                                        Add Instagram Account
+                                        Add Social Media Account
                                       </Button>
                                     </div>
                                   )}
@@ -803,13 +840,13 @@ export default function Dashboard() {
                                         toast({
                                           variant: "destructive",
                                           title: "Error",
-                                          description: "Please select an Instagram account",
+                                          description: "Please select a social media account",
                                         });
                                         return;
                                       }
                                       
                                       try {
-                                        const response = await fetch(`/api/instagram-accounts/${accountId}/post`, {
+                                        const response = await fetch(`/api/social-media-accounts/${accountId}/post`, {
                                           method: 'POST',
                                           headers: {
                                             'Content-Type': 'application/json',
@@ -821,7 +858,7 @@ export default function Dashboard() {
                                         
                                         if (!response.ok) {
                                           const errorData = await response.json();
-                                          throw new Error(errorData.error || errorData.details || 'Failed to post to Instagram');
+                                          throw new Error(errorData.error || errorData.details || 'Failed to post to social media');
                                         }
                                         
                                         const result = await response.json();
@@ -829,13 +866,13 @@ export default function Dashboard() {
                                         // Update the post in the local state
                                         setPosts(posts.map(p => 
                                           p.id === post.id 
-                                            ? {...p, status: 'PUBLISHED', instagramAccountId: accountId} 
+                                            ? {...p, status: 'PUBLISHED', socialMediaAccountId: accountId} 
                                             : p
                                         ));
                                         
                                         toast({
                                           title: "Success",
-                                          description: "Content posted successfully to Instagram",
+                                          description: result.message || "Content posted successfully",
                                         });
                                         
                                         // Close the dialog
@@ -844,11 +881,11 @@ export default function Dashboard() {
                                           (closeButton as HTMLButtonElement).click();
                                         }
                                       } catch (error) {
-                                        console.error('Error posting to Instagram:', error);
+                                        console.error('Error posting to social media:', error);
                                         toast({
                                           variant: "destructive",
                                           title: "Error",
-                                          description: error instanceof Error ? error.message : "Failed to post to Instagram",
+                                          description: error instanceof Error ? error.message : "Failed to post to social media",
                                         });
                                         
                                         // Update the post status to FAILED in the local state
@@ -860,7 +897,7 @@ export default function Dashboard() {
                                       }
                                     }}
                                   >
-                                    Post to Instagram
+                                    Post to Social Media
                                   </Button>
                                 </DialogFooter>
                               </DialogContent>
@@ -922,7 +959,7 @@ export default function Dashboard() {
                       </DialogHeader>
                       <div className="py-4">
                         <AIContentGenerator 
-                          instagramAccounts={accounts} 
+                          socialMediaAccounts={accounts} 
                           onGeneratedContent={handleGeneratedContent} 
                         />
                       </div>

@@ -11,9 +11,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, Image as ImageIcon, Upload, RefreshCw } from 'lucide-react';
 
-type InstagramAccount = {
+type SocialMediaAccount = {
   id: string;
   username: string;
+  accountType: "INSTAGRAM" | "BLUESKY" | "X";
 };
 
 type InstagramImage = {
@@ -23,12 +24,12 @@ type InstagramImage = {
 };
 
 type AIContentGeneratorProps = {
-  instagramAccounts: InstagramAccount[];
+  socialMediaAccounts: SocialMediaAccount[];
   onGeneratedContent: (content: { caption: string; imageUrls: string[]; contentType: string }) => void;
 };
 
 export default function AIContentGenerator({ 
-  instagramAccounts, 
+  socialMediaAccounts, 
   onGeneratedContent 
 }: AIContentGeneratorProps) {
   const { toast } = useToast();
@@ -59,9 +60,9 @@ export default function AIContentGenerator({
   const fetchInstagramImages = async (accountId: string) => {
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/instagram-accounts/${accountId}/images`);
+      const response = await fetch(`/api/social-media-accounts/${accountId}/images`);
       if (!response.ok) {
-        throw new Error('Failed to fetch Instagram images');
+        throw new Error('Failed to fetch social media images');
       }
       const data = await response.json();
       setAccountImages(data);
@@ -69,7 +70,7 @@ export default function AIContentGenerator({
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to fetch Instagram images",
+        description: error instanceof Error ? error.message : "Failed to fetch social media images",
       });
     } finally {
       setIsLoading(false);
@@ -285,17 +286,18 @@ export default function AIContentGenerator({
         
         <TabsContent value="existingImage" className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="instagramAccount">Select Instagram Account</Label>
+            <Label htmlFor="socialMediaAccount">Select Social Media Account</Label>
             <select
-              id="instagramAccount"
+              id="socialMediaAccount"
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               value={selectedAccount}
               onChange={(e) => setSelectedAccount(e.target.value)}
             >
               <option value="">Select an account</option>
-              {instagramAccounts.map((account) => (
+              {socialMediaAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {account.username}
+                  {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
+                   account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                 </option>
               ))}
             </select>

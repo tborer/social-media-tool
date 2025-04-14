@@ -10,41 +10,48 @@ datasource db {
 }
 
 model User {
-  id                String             @id @db.Uuid
-  email             String             @unique
-  createdAt         DateTime           @default(now())
-  instagramAccounts InstagramAccount[]
-  contentPosts      ContentPost[]
-  userSettings      UserSettings?
-  logs              Log[]
+  id                 String               @id @db.Uuid
+  email              String               @unique
+  createdAt          DateTime             @default(now())
+  socialMediaAccounts SocialMediaAccount[]
+  contentPosts       ContentPost[]
+  userSettings       UserSettings?
+  logs               Log[]
 }
 
-model InstagramAccount {
+model SocialMediaAccount {
   id           String        @id @default(uuid())
   username     String
   accessToken  String
+  accountType  AccountType   @default(INSTAGRAM)
   userId       String        @db.Uuid
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   contentPosts ContentPost[]
 
-  @@unique([userId, username])
+  @@unique([userId, username, accountType])
+}
+
+enum AccountType {
+  INSTAGRAM
+  BLUESKY
+  X
 }
 
 model ContentPost {
-  id                 String           @id @default(uuid())
-  caption            String
-  imageUrl           String?
-  contentType        ContentType      @default(IMAGE)
-  status             PostStatus       @default(DRAFT)
-  scheduledFor       DateTime?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  userId             String           @db.Uuid
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  instagramAccountId String?
-  instagramAccount   InstagramAccount? @relation(fields: [instagramAccountId], references: [id], onDelete: SetNull)
+  id                   String             @id @default(uuid())
+  caption              String
+  imageUrl             String?
+  contentType          ContentType        @default(IMAGE)
+  status               PostStatus         @default(DRAFT)
+  scheduledFor         DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  userId               String             @db.Uuid
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialMediaAccountId String?
+  socialMediaAccount   SocialMediaAccount? @relation(fields: [socialMediaAccountId], references: [id], onDelete: SetNull)
 }
 
 enum PostStatus {
