@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
-import { logger } from '@/lib/logger';
+import { createLog } from '@/lib/logger';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -74,40 +74,50 @@ async function createSocialMediaAccount(req: NextApiRequest, res: NextApiRespons
     });
     
     // Log the account creation
-    await logger.log({
-      type: 'CONTENT_POST',
-      endpoint: '/api/social-media-accounts',
-      userId,
-      requestData: {
-        method: 'POST',
-        username,
-        accountType,
-      },
-      response: {
-        id: newAccount.id,
-        username: newAccount.username,
-        accountType: newAccount.accountType,
-      },
-      status: 201,
-    });
+    try {
+      await createLog({
+        type: 'CONTENT_POST',
+        endpoint: '/api/social-media-accounts',
+        userId,
+        requestData: {
+          method: 'POST',
+          username,
+          accountType,
+        },
+        response: {
+          id: newAccount.id,
+          username: newAccount.username,
+          accountType: newAccount.accountType,
+        },
+        status: 201,
+      });
+    } catch (logError) {
+      console.error('Error logging account creation:', logError);
+      // Continue even if logging fails
+    }
     
     return res.status(201).json(newAccount);
   } catch (error) {
     console.error('Error creating social media account:', error);
     
     // Log the error
-    await logger.log({
-      type: 'CONTENT_POST',
-      endpoint: '/api/social-media-accounts',
-      userId,
-      requestData: {
-        method: 'POST',
-        username,
-        accountType,
-      },
-      error: error instanceof Error ? error.message : 'Unknown error',
-      status: 500,
-    });
+    try {
+      await createLog({
+        type: 'CONTENT_POST',
+        endpoint: '/api/social-media-accounts',
+        userId,
+        requestData: {
+          method: 'POST',
+          username,
+          accountType,
+        },
+        error: error instanceof Error ? error.message : 'Unknown error',
+        status: 500,
+      });
+    } catch (logError) {
+      console.error('Error logging account creation failure:', logError);
+      // Continue even if logging fails
+    }
     
     return res.status(500).json({ error: 'Failed to create social media account' });
   }
