@@ -81,13 +81,21 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       });
     }
     
+    // Get scheduledFor from request body
+    const { scheduledFor } = req.body;
+    
     // Prepare the data for creating a new post
     const postData: any = {
       caption,
       imageUrl,
       userId,
-      status: 'DRAFT',
+      status: scheduledFor ? 'SCHEDULED' : 'DRAFT',
     };
+    
+    // Add scheduledFor if provided
+    if (scheduledFor) {
+      postData.scheduledFor = new Date(scheduledFor);
+    }
     
     // Only include instagramAccountId if it's provided and valid
     if (instagramAccountId && instagramAccountId.trim() !== '') {

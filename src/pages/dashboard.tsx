@@ -16,6 +16,8 @@ import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
 import LogsViewer from "@/components/LogsViewer";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
 
 type SocialMediaAccount = {
   id: string;
@@ -154,7 +156,14 @@ export default function Dashboard() {
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "BLUESKY" | "X" });
   const [isCreatingPost, setIsCreatingPost] = useState(false);
-  const [newPost, setNewPost] = useState({ caption: "", imageUrl: "", socialMediaAccountId: "", contentType: "IMAGE" });
+  const [newPost, setNewPost] = useState({ 
+    caption: "", 
+    imageUrl: "", 
+    imageFile: null as File | null,
+    socialMediaAccountId: "", 
+    contentType: "IMAGE",
+    scheduledFor: null as string | null
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
 
@@ -250,8 +259,41 @@ export default function Dashboard() {
     }
 
     try {
+      // Handle file upload if a file was selected
+      let imageUrl = newPost.imageUrl;
+      
+      if (newPost.imageFile) {
+        // Create a FormData object to upload the file
+        const formData = new FormData();
+        formData.append('file', newPost.imageFile);
+        
+        try {
+          // Upload the file to a temporary storage or directly to your server
+          // This is a placeholder - you would need to implement a file upload API endpoint
+          const uploadResponse = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!uploadResponse.ok) {
+            throw new Error('Failed to upload image');
+          }
+          
+          const uploadData = await uploadResponse.json();
+          imageUrl = uploadData.url; // Use the URL returned from the server
+        } catch (uploadError) {
+          console.error('Error uploading file:', uploadError);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to upload image. Please try again or use an image URL instead.",
+          });
+          return;
+        }
+      }
+      
       // Check if the image URL is too long
-      if (newPost.imageUrl && newPost.imageUrl.length > 2000) {
+      if (imageUrl && imageUrl.length > 2000) {
         toast({
           variant: "destructive",
           title: "Error",
@@ -263,8 +305,10 @@ export default function Dashboard() {
       // Create a copy of the post data to send to the API
       const postData = {
         caption: newPost.caption,
-        imageUrl: newPost.imageUrl,
+        imageUrl: imageUrl,
         contentType: newPost.contentType,
+        // Include scheduledFor if it's set
+        ...(newPost.scheduledFor ? { scheduledFor: newPost.scheduledFor } : {}),
         // Only include socialMediaAccountId if it's not empty
         ...(newPost.socialMediaAccountId && newPost.socialMediaAccountId.trim() !== '' 
           ? { socialMediaAccountId: newPost.socialMediaAccountId } 
@@ -301,7 +345,14 @@ export default function Dashboard() {
       
       const newPostData = await response.json();
       setPosts([...posts, newPostData]);
-      setNewPost({ caption: "", imageUrl: "", socialMediaAccountId: "", contentType: "IMAGE" });
+      setNewPost({ 
+        caption: "", 
+        imageUrl: "", 
+        imageFile: null,
+        socialMediaAccountId: "", 
+        contentType: "IMAGE",
+        scheduledFor: null
+      });
       setIsCreatingPost(false);
       
       toast({
@@ -323,7 +374,9 @@ export default function Dashboard() {
       ...newPost,
       caption: content.caption,
       imageUrl: content.imageUrls[0] || "",
+      imageFile: null,
       contentType: content.contentType,
+      scheduledFor: null
     });
     setIsGeneratingContent(false);
     setIsCreatingPost(true);
@@ -636,13 +689,42 @@ export default function Dashboard() {
                             </Button>
                           </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="imageUrl">Image URL</Label>
-                            <Input
-                              id="imageUrl"
-                              value={newPost.imageUrl}
-                              onChange={(e) => setNewPost({...newPost, imageUrl: e.target.value})}
-                              placeholder="https://example.com/your-image.jpg"
-                            />
+                            <Label htmlFor="imageUrl">Image</Label>
+                            <Tabs defaultValue="url" className="w-full">
+                              <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="url">URL</TabsTrigger>
+                                <TabsTrigger value="upload">Upload</TabsTrigger>
+                              </TabsList>
+                              <TabsContent value="url">
+                                <Input
+                                  id="imageUrl"
+                                  value={newPost.imageUrl}
+                                  onChange={(e) => setNewPost({...newPost, imageUrl: e.target.value})}
+                                  placeholder="https://example.com/your-image.jpg"
+                                  className="mt-2"
+                                />
+                              </TabsContent>
+                              <TabsContent value="upload">
+                                <div className="mt-2">
+                                  <Input
+                                    id="imageFile"
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        // Create a URL for the selected file
+                                        const fileUrl = URL.createObjectURL(file);
+                                        setNewPost({...newPost, imageUrl: fileUrl, imageFile: file});
+                                      }
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Select an image file from your device
+                                  </p>
+                                </div>
+                              </TabsContent>
+                            </Tabs>
                             {newPost.imageUrl && (
                               <div className="mt-2 aspect-square relative rounded-md overflow-hidden border">
                                 <img 
@@ -652,6 +734,78 @@ export default function Dashboard() {
                                 />
                               </div>
                             )}
+                          </div>
+                          
+                          <div className="grid gap-2">
+                            <Label htmlFor="scheduledFor">Schedule Post</Label>
+                            <div className="flex flex-col space-y-2">
+                              <div className="grid gap-2">
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      className="w-full justify-start text-left font-normal"
+                                    >
+                                      <Calendar className="mr-2 h-4 w-4" />
+                                      {newPost.scheduledFor ? 
+                                        format(new Date(newPost.scheduledFor), 'PPP') : 
+                                        "Pick a date"}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-0">
+                                    <Calendar
+                                      mode="single"
+                                      selected={newPost.scheduledFor ? new Date(newPost.scheduledFor) : undefined}
+                                      onSelect={(date) => {
+                                        if (date) {
+                                          // Preserve the time if already set
+                                          const currentDate = newPost.scheduledFor ? new Date(newPost.scheduledFor) : new Date();
+                                          date.setHours(currentDate.getHours());
+                                          date.setMinutes(currentDate.getMinutes());
+                                          setNewPost({...newPost, scheduledFor: date.toISOString()});
+                                        }
+                                      }}
+                                      initialFocus
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                              <div className="flex space-x-2">
+                                <select
+                                  className="flex h-10 w-20 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                  value={newPost.scheduledFor ? new Date(newPost.scheduledFor).getHours() : new Date().getHours()}
+                                  onChange={(e) => {
+                                    const hours = parseInt(e.target.value);
+                                    const date = newPost.scheduledFor ? new Date(newPost.scheduledFor) : new Date();
+                                    date.setHours(hours);
+                                    setNewPost({...newPost, scheduledFor: date.toISOString()});
+                                  }}
+                                >
+                                  {Array.from({ length: 24 }, (_, i) => (
+                                    <option key={i} value={i}>
+                                      {i.toString().padStart(2, '0')}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="flex items-center">:</span>
+                                <select
+                                  className="flex h-10 w-20 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                  value={newPost.scheduledFor ? new Date(newPost.scheduledFor).getMinutes() : new Date().getMinutes()}
+                                  onChange={(e) => {
+                                    const minutes = parseInt(e.target.value);
+                                    const date = newPost.scheduledFor ? new Date(newPost.scheduledFor) : new Date();
+                                    date.setMinutes(minutes);
+                                    setNewPost({...newPost, scheduledFor: date.toISOString()});
+                                  }}
+                                >
+                                  {Array.from({ length: 60 }, (_, i) => (
+                                    <option key={i} value={i}>
+                                      {i.toString().padStart(2, '0')}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
                           </div>
                           {accounts.length > 0 && (
                             <div className="grid gap-2">
