@@ -1,4 +1,5 @@
 import { LogType } from '@prisma/client';
+import prisma from '@/lib/prisma';
 
 interface LogData {
   type: LogType;
@@ -10,6 +11,7 @@ interface LogData {
   userId: string;
 }
 
+// For client-side logging
 export async function createLog(logData: LogData): Promise<void> {
   try {
     await fetch('/api/logs', {
@@ -21,6 +23,25 @@ export async function createLog(logData: LogData): Promise<void> {
     });
   } catch (error) {
     console.error('Failed to create log:', error);
+  }
+}
+
+// For server-side logging (API routes)
+export async function createServerLog(logData: LogData): Promise<void> {
+  try {
+    await prisma.log.create({
+      data: {
+        type: logData.type,
+        endpoint: logData.endpoint,
+        requestData: logData.requestData,
+        response: logData.response,
+        status: logData.status,
+        error: logData.error,
+        userId: logData.userId,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to create server log:', error);
   }
 }
 
@@ -36,3 +57,9 @@ export async function fetchLogs(): Promise<any[]> {
     return [];
   }
 }
+
+// Export a logger object for convenience
+export const logger = {
+  log: createLog,
+  serverLog: createServerLog,
+};

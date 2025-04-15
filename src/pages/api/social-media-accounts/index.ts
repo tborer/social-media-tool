@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
-import { createLog } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -75,7 +75,7 @@ async function createSocialMediaAccount(req: NextApiRequest, res: NextApiRespons
     
     // Log the account creation
     try {
-      await createLog({
+      await logger.serverLog({
         type: 'CONTENT_POST',
         endpoint: '/api/social-media-accounts',
         userId,
@@ -102,7 +102,7 @@ async function createSocialMediaAccount(req: NextApiRequest, res: NextApiRespons
     
     // Log the error
     try {
-      await createLog({
+      await logger.serverLog({
         type: 'CONTENT_POST',
         endpoint: '/api/social-media-accounts',
         userId,
