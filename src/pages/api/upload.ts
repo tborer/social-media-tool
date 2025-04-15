@@ -66,13 +66,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         // Get the public URL for the uploaded file
-        const { data: urlData } = supabase.storage
+        const urlData = supabase.storage
           .from('uploads')
           .getPublicUrl(`${user.id}/${fileName}`);
 
         // Return the URL of the uploaded file
         return res.status(200).json({ 
-          url: urlData.publicUrl,
+          url: urlData.data.publicUrl,
           fileName: fileName,
           originalName: file.originalFilename,
           size: file.size,
