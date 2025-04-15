@@ -248,7 +248,7 @@ export default function Dashboard() {
     }
   };
 
-  const handleCreatePost = async () => {
+  const handleCreatePost = async (saveAsDraft: boolean = false) => {
     if (!newPost.caption) {
       toast({
         variant: "destructive",
@@ -307,6 +307,8 @@ export default function Dashboard() {
         caption: newPost.caption,
         imageUrl: imageUrl,
         contentType: newPost.contentType,
+        // Set status to DRAFT if saveAsDraft is true
+        ...(saveAsDraft ? { status: 'DRAFT' } : {}),
         // Include scheduledFor if it's set
         ...(newPost.scheduledFor ? { scheduledFor: newPost.scheduledFor } : {}),
         // Only include socialMediaAccountId if it's not empty
@@ -357,7 +359,7 @@ export default function Dashboard() {
       
       toast({
         title: "Success",
-        description: "Post created successfully",
+        description: saveAsDraft ? "Post saved to drafts" : "Post created successfully",
       });
     } catch (error) {
       console.error('Error creating post:', error);
@@ -829,20 +831,30 @@ export default function Dashboard() {
                       </ScrollArea>
                       <DialogFooter className="mt-4">
                         <Button variant="outline" onClick={() => setIsCreatingPost(false)}>Cancel</Button>
-                        <Button onClick={handleCreatePost}>Create Post</Button>
+                        <Button variant="outline" onClick={() => handleCreatePost(true)}>Save to Drafts</Button>
+                        <Button onClick={() => handleCreatePost(false)}>Create Post</Button>
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
                 </div>
               </div>
               
-              {isLoading ? (
-                <div className="flex justify-center items-center h-64">
-                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : posts.length > 0 ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  {posts.map((post) => (
+              <Tabs defaultValue="all" className="mt-6">
+                <TabsList>
+                  <TabsTrigger value="all">All Posts</TabsTrigger>
+                  <TabsTrigger value="drafts">Drafts</TabsTrigger>
+                  <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
+                  <TabsTrigger value="published">Published</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="all">
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-64">
+                      <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : posts.length > 0 ? (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {posts.map((post) => (
                     <Card key={post.id}>
                       <CardHeader>
                         <CardTitle className="flex items-center">
@@ -1092,6 +1104,298 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               )}
+                </TabsContent>
+                
+                <TabsContent value="drafts">
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-64">
+                      <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : posts.filter(post => post.status === 'DRAFT').length > 0 ? (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {posts.filter(post => post.status === 'DRAFT').map((post) => (
+                        <Card key={post.id}>
+                          <CardHeader>
+                            <CardTitle className="flex items-center">
+                              <div className="flex-1 truncate">{post.caption.substring(0, 30)}...</div>
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                  post.contentType === 'IMAGE' ? 'bg-purple-100 text-purple-800' :
+                                  post.contentType === 'VIDEO' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-green-100 text-green-800'
+                                }`}>
+                                  {post.contentType.replace('_', ' ')}
+                                </span>
+                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  {post.status}
+                                </span>
+                              </div>
+                            </CardTitle>
+                            {post.scheduledFor && (
+                              <CardDescription className="flex items-center">
+                                <Calendar className="h-4 w-4 mr-1" />
+                                {new Date(post.scheduledFor).toLocaleString()}
+                              </CardDescription>
+                            )}
+                          </CardHeader>
+                          <CardContent>
+                            {post.imageUrl && (
+                              <div className="aspect-square relative mb-4 rounded-md overflow-hidden">
+                                <img 
+                                  src={post.imageUrl} 
+                                  alt="Post image" 
+                                  className="object-cover w-full h-full"
+                                  onError={(e) => {
+                                    // If image fails to load, show placeholder
+                                    e.currentTarget.style.display = 'none';
+                                    e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-muted');
+                                    const icon = document.createElement('div');
+                                    icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>';
+                                    e.currentTarget.parentElement?.appendChild(icon);
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <p className="text-sm text-muted-foreground line-clamp-3">{post.caption}</p>
+                          </CardContent>
+                          <CardFooter className="flex flex-col gap-2">
+                            <div className="flex justify-between w-full">
+                              <Button variant="outline" size="sm" onClick={() => {
+                                // Set the post data for editing
+                                setNewPost({
+                                  caption: post.caption,
+                                  imageUrl: post.imageUrl || "",
+                                  imageFile: null,
+                                  socialMediaAccountId: post.socialMediaAccountId || "",
+                                  contentType: post.contentType,
+                                  scheduledFor: post.scheduledFor || null
+                                });
+                                setIsCreatingPost(true);
+                              }}>
+                                <Edit className="h-4 w-4 mr-2" /> Edit
+                              </Button>
+                              <Button variant="destructive" size="sm" onClick={async () => {
+                                try {
+                                  const response = await fetch(`/api/content-posts/${post.id}`, {
+                                    method: 'DELETE',
+                                  });
+                                  
+                                  if (!response.ok) {
+                                    throw new Error('Failed to delete post');
+                                  }
+                                  
+                                  // Remove the post from the state
+                                  setPosts(posts.filter(p => p.id !== post.id));
+                                  
+                                  toast({
+                                    title: "Success",
+                                    description: "Post deleted successfully",
+                                  });
+                                } catch (error) {
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Error",
+                                    description: error instanceof Error ? error.message : "Failed to delete post",
+                                  });
+                                }
+                              }}>
+                                <Trash2 className="h-4 w-4 mr-2" /> Delete
+                              </Button>
+                            </div>
+                            
+                            <div className="flex gap-2 w-full mt-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button className="flex-1" size="sm">
+                                    Post Now
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Post to Social Media</DialogTitle>
+                                    <DialogDescription>
+                                      Select a social media account to post this content to.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <div className="py-4">
+                                    {accounts.length > 0 ? (
+                                      <div className="grid gap-4">
+                                        <div className="grid gap-2">
+                                          <Label htmlFor="post-account">Social Media Account</Label>
+                                          <select
+                                            id="post-account"
+                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                            defaultValue={post.socialMediaAccountId || ""}
+                                          >
+                                            <option value="" disabled>Select an account</option>
+                                            {accounts.map((account) => (
+                                              <option key={account.id} value={account.id}>
+                                                {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
+                                                 account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                        <div className="mt-2">
+                                          <div className="rounded-md bg-muted p-4">
+                                            <div className="font-medium">Post Preview</div>
+                                            {post.imageUrl && (
+                                              <div className="mt-2 aspect-square relative rounded-md overflow-hidden border max-w-[200px]">
+                                                <img 
+                                                  src={post.imageUrl} 
+                                                  alt="Post preview" 
+                                                  className="object-cover w-full h-full"
+                                                />
+                                              </div>
+                                            )}
+                                            <p className="mt-2 text-sm">{post.caption}</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-4">
+                                        <p className="text-muted-foreground">You need to add a social media account first.</p>
+                                        <Button 
+                                          variant="outline" 
+                                          className="mt-2"
+                                          onClick={() => {
+                                            setIsAddingAccount(true);
+                                          }}
+                                        >
+                                          Add Social Media Account
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <DialogFooter>
+                                    <Button 
+                                      variant="outline" 
+                                      onClick={(e) => {
+                                        const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
+                                        if (dialogContent) {
+                                          const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
+                                          if (closeButton) {
+                                            (closeButton as HTMLButtonElement).click();
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      onClick={async (e) => {
+                                        const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
+                                        if (!dialogContent) return;
+                                        
+                                        const select = dialogContent.querySelector('select#post-account') as HTMLSelectElement;
+                                        const accountId = select?.value;
+                                        
+                                        if (!accountId) {
+                                          toast({
+                                            variant: "destructive",
+                                            title: "Error",
+                                            description: "Please select a social media account",
+                                          });
+                                          return;
+                                        }
+                                        
+                                        try {
+                                          const response = await fetch(`/api/social-media-accounts/${accountId}/post`, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({
+                                              postId: post.id,
+                                            }),
+                                          });
+                                          
+                                          if (!response.ok) {
+                                            const errorData = await response.json();
+                                            throw new Error(errorData.error || errorData.details || 'Failed to post to social media');
+                                          }
+                                          
+                                          const result = await response.json();
+                                          
+                                          // Update the post in the local state
+                                          setPosts(posts.map(p => 
+                                            p.id === post.id 
+                                              ? {...p, status: 'PUBLISHED', socialMediaAccountId: accountId} 
+                                              : p
+                                          ));
+                                          
+                                          toast({
+                                            title: "Success",
+                                            description: result.message || "Content posted successfully",
+                                          });
+                                          
+                                          // Close the dialog
+                                          const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
+                                          if (closeButton) {
+                                            (closeButton as HTMLButtonElement).click();
+                                          }
+                                        } catch (error) {
+                                          console.error('Error posting to social media:', error);
+                                          toast({
+                                            variant: "destructive",
+                                            title: "Error",
+                                            description: error instanceof Error ? error.message : "Failed to post to social media",
+                                          });
+                                          
+                                          // Update the post status to FAILED in the local state
+                                          setPosts(posts.map(p => 
+                                            p.id === post.id 
+                                              ? {...p, status: 'FAILED'} 
+                                              : p
+                                          ));
+                                        }
+                                      }}
+                                    >
+                                      Post to Social Media
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                              <Button 
+                                variant="outline" 
+                                className="flex-1" 
+                                size="sm"
+                                onClick={() => {
+                                  // Open scheduling dialog
+                                  setNewPost({
+                                    caption: post.caption,
+                                    imageUrl: post.imageUrl || "",
+                                    imageFile: null,
+                                    socialMediaAccountId: post.socialMediaAccountId || "",
+                                    contentType: post.contentType,
+                                    scheduledFor: new Date().toISOString() // Set default to current time
+                                  });
+                                  setIsCreatingPost(true);
+                                }}
+                              >
+                                Schedule
+                              </Button>
+                            </div>
+                          </CardFooter>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>No Draft Posts</CardTitle>
+                        <CardDescription>
+                          Save posts as drafts to edit them later before posting.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button onClick={() => setIsCreatingPost(true)}>
+                          <Plus className="mr-2 h-4 w-4" /> Create New Post
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
             </TabsContent>
             
             <TabsContent value="wordpress">
