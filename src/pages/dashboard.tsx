@@ -1396,6 +1396,7 @@ export default function Dashboard() {
                     </Card>
                   )}
                 </TabsContent>
+              </Tabs>
             </TabsContent>
             
             <TabsContent value="wordpress">
