@@ -268,25 +268,81 @@ export default function Dashboard() {
         formData.append('file', newPost.imageFile);
         
         try {
-          // Upload the file to a temporary storage or directly to your server
-          // This is a placeholder - you would need to implement a file upload API endpoint
+          // Show loading toast
+          toast({
+            title: "Uploading image",
+            description: "Please wait while we upload your image...",
+          });
+          
+          // Upload the file to our upload API
           const uploadResponse = await fetch('/api/upload', {
             method: 'POST',
             body: formData,
           });
           
           if (!uploadResponse.ok) {
-            throw new Error('Failed to upload image');
+            const errorData = await uploadResponse.json();
+            throw new Error(errorData.error || 'Failed to upload image');
           }
           
           const uploadData = await uploadResponse.json();
           imageUrl = uploadData.url; // Use the URL returned from the server
+          
+          // Success toast
+          toast({
+            title: "Image uploaded",
+            description: "Your image has been uploaded successfully.",
+          });
         } catch (uploadError) {
           console.error('Error uploading file:', uploadError);
           toast({
             variant: "destructive",
             title: "Error",
-            description: "Failed to upload image. Please try again or use an image URL instead.",
+            description: uploadError instanceof Error ? uploadError.message : "Failed to upload image. Please try again or use an image URL instead.",
+          });
+          return;
+        }
+      } else if (imageUrl && imageUrl.startsWith('data:')) {
+        // If we have a data URL but no file, we need to process it
+        try {
+          toast({
+            title: "Processing image",
+            description: "Please wait while we process your image...",
+          });
+          
+          // Convert data URL to file
+          const response = await fetch(imageUrl);
+          const blob = await response.blob();
+          const file = new File([blob], `image-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          
+          // Create a FormData object to upload the file
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          // Upload the file
+          const uploadResponse = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            throw new Error(errorData.error || 'Failed to process image');
+          }
+          
+          const uploadData = await uploadResponse.json();
+          imageUrl = uploadData.url; // Use the URL returned from the server
+          
+          toast({
+            title: "Image processed",
+            description: "Your image has been processed successfully.",
+          });
+        } catch (processError) {
+          console.error('Error processing image:', processError);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: processError instanceof Error ? processError.message : "Failed to process image. Please try again or use a different image.",
           });
           return;
         }

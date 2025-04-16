@@ -1,9 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import { IncomingForm } from 'formidable';
-import { createReadStream } from 'fs';
+import { createReadStream, promises as fs } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '@/lib/logger';
+import path from 'path';
+import os from 'os';
 
 // Disable the default body parser to handle form data
 export const config = {
@@ -52,32 +54,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Generate a unique file name
         const fileName = `${uuidv4()}-${file.originalFilename}`;
         
-        // Upload the file to Supabase Storage
-        const { data, error } = await supabase.storage
-          .from('uploads')
-          .upload(`${user.id}/${fileName}`, createReadStream(file.filepath), {
-            contentType: file.mimetype || 'application/octet-stream',
-            cacheControl: '3600',
+        // Try to upload to Supabase Storage first
+        try {
+          // Upload the file to Supabase Storage
+          const { data, error } = await supabase.storage
+            .from('uploads')
+            .upload(`${user.id}/${fileName}`, createReadStream(file.filepath), {
+              contentType: file.mimetype || 'application/octet-stream',
+              cacheControl: '3600',
+            });
+
+          if (error) {
+            throw error;
+          }
+
+          // Get the public URL for the uploaded file
+          const { data: urlData } = supabase.storage
+            .from('uploads')
+            .getPublicUrl(`${user.id}/${fileName}`);
+
+          // Return the URL of the uploaded file
+          return res.status(200).json({ 
+            url: urlData.publicUrl,
+            fileName: fileName,
+            originalName: file.originalFilename,
+            size: file.size,
+            type: file.mimetype
           });
-
-        if (error) {
-          logger.error('Error uploading to Supabase Storage:', error);
-          return res.status(500).json({ error: 'Failed to upload file to storage' });
+        } catch (supabaseError) {
+          // If Supabase upload fails, fall back to temporary local storage
+          logger.warn('Supabase storage upload failed, using temporary storage:', supabaseError);
+          
+          // Create a temporary directory for the user if it doesn't exist
+          const tempDir = path.join(os.tmpdir(), 'instacreate-temp', user.id);
+          await fs.mkdir(tempDir, { recursive: true });
+          
+          // Copy the file to the temporary directory
+          const tempFilePath = path.join(tempDir, fileName);
+          await fs.copyFile(file.filepath, tempFilePath);
+          
+          // Generate a temporary URL for the file
+          // In a real production environment, you would use a CDN or cloud storage
+          // For this demo, we'll create a base64 data URL
+          const fileBuffer = await fs.readFile(tempFilePath);
+          const base64Data = fileBuffer.toString('base64');
+          const dataUrl = `data:${file.mimetype || 'application/octet-stream'};base64,${base64Data}`;
+          
+          // Return the data URL
+          return res.status(200).json({
+            url: dataUrl,
+            fileName: fileName,
+            originalName: file.originalFilename,
+            size: file.size,
+            type: file.mimetype,
+            isTemporary: true
+          });
         }
-
-        // Get the public URL for the uploaded file
-        const urlData = supabase.storage
-          .from('uploads')
-          .getPublicUrl(`${user.id}/${fileName}`);
-
-        // Return the URL of the uploaded file
-        return res.status(200).json({ 
-          url: urlData.data.publicUrl,
-          fileName: fileName,
-          originalName: file.originalFilename,
-          size: file.size,
-          type: file.mimetype
-        });
       } catch (uploadError) {
         logger.error('Error in file upload process:', uploadError);
         return res.status(500).json({ error: 'Failed to upload file' });

@@ -15,9 +15,8 @@ export async function processImageUrl(imageUrl: string): Promise<string> {
   }
 
   try {
-    // For data URLs, we'll extract the data and upload it to an image hosting service
-    // For this example, we'll simulate this by returning a shortened URL
-    // In a real implementation, you would upload the image to a storage service like Supabase Storage
+    // For data URLs, we need to upload the image to a storage service
+    // In this case, we'll use our own upload API
     
     // Extract the base64 data
     const matches = imageUrl.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
@@ -26,24 +25,67 @@ export async function processImageUrl(imageUrl: string): Promise<string> {
       throw new Error('Invalid data URL');
     }
     
-    // In a real implementation, you would upload the image to a storage service
-    // and return the URL to the uploaded image
-    // For now, we'll return a placeholder URL
-    return `https://example.com/image-${Date.now()}.jpg`;
+    // Convert base64 to blob
+    const contentType = matches[1];
+    const base64Data = matches[2];
+    const byteCharacters = atob(base64Data);
+    const byteArrays = [];
     
-    // TODO: Replace with actual image upload code
-    // Example with Supabase Storage:
-    // const { data, error } = await supabase.storage
-    //   .from('images')
-    //   .upload(`image-${Date.now()}.jpg`, decode(matches[2]), {
-    //     contentType: matches[1],
-    //   });
-    // 
-    // if (error) throw error;
-    // 
-    // return supabase.storage.from('images').getPublicUrl(data.path).publicUrl;
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
+      
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    
+    const blob = new Blob(byteArrays, { type: contentType });
+    
+    // Create a file from the blob
+    const file = new File([blob], `image-${Date.now()}.${getExtensionFromMimeType(contentType)}`, { type: contentType });
+    
+    // Create a FormData object to upload the file
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Upload the file using our upload API
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to upload image');
+    }
+    
+    const data = await response.json();
+    return data.url;
   } catch (error) {
     console.error('Error processing image URL:', error);
     throw new Error('Failed to process image URL');
   }
+}
+
+/**
+ * Gets the file extension from a MIME type
+ * @param mimeType The MIME type
+ * @returns The file extension
+ */
+function getExtensionFromMimeType(mimeType: string): string {
+  const extensions: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
+  };
+  
+  return extensions[mimeType] || 'jpg';
 }

@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
+import logger from '@/lib/logger';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -10,7 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   
   if (authError || !user) {
-    console.error('Authentication error:', authError);
+    logger.error('Authentication error:', authError);
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
@@ -32,7 +33,7 @@ async function getContentPosts(req: NextApiRequest, res: NextApiResponse, userId
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: {
-        instagramAccount: {
+        socialMediaAccount: {
           select: {
             id: true,
             username: true,
@@ -43,7 +44,7 @@ async function getContentPosts(req: NextApiRequest, res: NextApiResponse, userId
     
     return res.status(200).json(posts);
   } catch (error) {
-    console.error('Error fetching content posts:', error);
+    logger.error('Error fetching content posts:', error);
     return res.status(500).json({ error: 'Failed to fetch content posts' });
   }
 }
@@ -56,26 +57,26 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
     const maxContentLength = 1024 * 1024; // 1MB limit
     
     if (contentLength > maxContentLength) {
-      console.error(`Error creating content post: Request body too large (${contentLength} bytes)`);
+      logger.error(`Error creating content post: Request body too large (${contentLength} bytes)`);
       return res.status(413).json({ 
         error: 'Request body too large. Image URLs may be too long or contain too much data. Try using a shorter image URL or reducing the content size.' 
       });
     }
     
-    const { caption, imageUrl, instagramAccountId } = req.body;
+    const { caption, imageUrl, socialMediaAccountId, contentType, status } = req.body;
     
     if (!caption) {
-      console.error('Error creating content post: Caption is required');
+      logger.error('Error creating content post: Caption is required');
       return res.status(400).json({ error: 'Caption is required' });
     }
     
     // Log the size of the caption and imageUrl for debugging
-    console.info(`Caption length: ${caption.length} characters`);
-    console.info(`Image URL length: ${imageUrl ? imageUrl.length : 0} characters`);
+    logger.info(`Caption length: ${caption.length} characters`);
+    logger.info(`Image URL length: ${imageUrl ? imageUrl.length : 0} characters`);
     
     // Check if the image URL is too long
     if (imageUrl && imageUrl.length > 2000) {
-      console.warn(`Image URL is too long (${imageUrl.length} characters). This may cause issues.`);
+      logger.warn(`Image URL is too long (${imageUrl.length} characters). This may cause issues.`);
       return res.status(400).json({ 
         error: 'Image URL is too long. Please use a shorter URL or a different image.' 
       });
@@ -89,31 +90,37 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       caption,
       imageUrl,
       userId,
-      status: scheduledFor ? 'SCHEDULED' : 'DRAFT',
+      // Use provided status or default to DRAFT
+      status: status || (scheduledFor ? 'SCHEDULED' : 'DRAFT'),
     };
+    
+    // Add contentType if provided
+    if (contentType) {
+      postData.contentType = contentType;
+    }
     
     // Add scheduledFor if provided
     if (scheduledFor) {
       postData.scheduledFor = new Date(scheduledFor);
     }
     
-    // Only include instagramAccountId if it's provided and valid
-    if (instagramAccountId && instagramAccountId.trim() !== '') {
-      // Verify the Instagram account belongs to the user
-      const account = await prisma.instagramAccount.findFirst({
+    // Only include socialMediaAccountId if it's provided and valid
+    if (socialMediaAccountId && socialMediaAccountId.trim() !== '') {
+      // Verify the social media account belongs to the user
+      const account = await prisma.socialMediaAccount.findFirst({
         where: {
-          id: instagramAccountId,
+          id: socialMediaAccountId,
           userId,
         },
       });
       
       if (!account) {
-        console.error(`Error creating content post: Invalid Instagram account ID: ${instagramAccountId}`);
-        return res.status(400).json({ error: 'Invalid Instagram account' });
+        logger.error(`Error creating content post: Invalid social media account ID: ${socialMediaAccountId}`);
+        return res.status(400).json({ error: 'Invalid social media account' });
       }
       
       // If account is valid, add it to the post data
-      postData.instagramAccountId = instagramAccountId;
+      postData.socialMediaAccountId = socialMediaAccountId;
     }
     
     // Create new content post
@@ -121,10 +128,10 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       data: postData,
     });
     
-    console.info(`Successfully created content post with ID: ${newPost.id}`);
+    logger.info(`Successfully created content post with ID: ${newPost.id}`);
     return res.status(201).json(newPost);
   } catch (error) {
-    console.error('Error creating content post:', error);
+    logger.error('Error creating content post:', error);
     return res.status(500).json({ error: 'Failed to create content post' });
   }
 }
