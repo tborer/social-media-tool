@@ -281,11 +281,29 @@ export default function Dashboard() {
           });
           
           if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            throw new Error(errorData.error || 'Failed to upload image');
+            let errorMessage = 'Failed to upload image';
+            try {
+              const errorData = await uploadResponse.json();
+              errorMessage = errorData.error || errorMessage;
+            } catch (jsonError) {
+              console.error('Error parsing upload API response:', jsonError);
+              errorMessage = `Upload failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
+            }
+            throw new Error(errorMessage);
           }
           
-          const uploadData = await uploadResponse.json();
+          let uploadData;
+          try {
+            uploadData = await uploadResponse.json();
+          } catch (jsonError) {
+            console.error('Error parsing upload response JSON:', jsonError);
+            throw new Error('Invalid response from upload server. Please try again.');
+          }
+          
+          if (!uploadData || !uploadData.url) {
+            throw new Error('Upload server returned an invalid response');
+          }
+          
           imageUrl = uploadData.url; // Use the URL returned from the server
           
           // Success toast
@@ -326,11 +344,29 @@ export default function Dashboard() {
           });
           
           if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            throw new Error(errorData.error || 'Failed to process image');
+            let errorMessage = 'Failed to process image';
+            try {
+              const errorData = await uploadResponse.json();
+              errorMessage = errorData.error || errorMessage;
+            } catch (jsonError) {
+              console.error('Error parsing upload API response:', jsonError);
+              errorMessage = `Image processing failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
+            }
+            throw new Error(errorMessage);
           }
           
-          const uploadData = await uploadResponse.json();
+          let uploadData;
+          try {
+            uploadData = await uploadResponse.json();
+          } catch (jsonError) {
+            console.error('Error parsing upload response JSON:', jsonError);
+            throw new Error('Invalid response from upload server. Please try again.');
+          }
+          
+          if (!uploadData || !uploadData.url) {
+            throw new Error('Upload server returned an invalid response');
+          }
+          
           imageUrl = uploadData.url; // Use the URL returned from the server
           
           toast({
@@ -373,6 +409,12 @@ export default function Dashboard() {
           : {})
       };
 
+      // Show a loading toast for creating the post
+      const loadingToast = toast({
+        title: saveAsDraft ? "Saving draft" : "Creating post",
+        description: "Please wait...",
+      });
+
       const response = await fetch('/api/content-posts', {
         method: 'POST',
         headers: {
@@ -401,7 +443,14 @@ export default function Dashboard() {
         throw new Error(errorMessage);
       }
       
-      const newPostData = await response.json();
+      let newPostData;
+      try {
+        newPostData = await response.json();
+      } catch (jsonError) {
+        console.error('Error parsing post creation response:', jsonError);
+        throw new Error('Server returned an invalid response. Your post might have been created but could not be displayed.');
+      }
+      
       setPosts([...posts, newPostData]);
       setNewPost({ 
         caption: "", 

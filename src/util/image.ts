@@ -59,14 +59,33 @@ export async function processImageUrl(imageUrl: string): Promise<string> {
     });
     
     if (!response.ok) {
-      throw new Error('Failed to upload image');
+      let errorMessage = 'Failed to upload image';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch (jsonError) {
+        console.error('Error parsing upload API response:', jsonError);
+        errorMessage = `Upload failed with status: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMessage);
     }
     
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      console.error('Error parsing upload response JSON:', jsonError);
+      throw new Error('Invalid response from upload server');
+    }
+    
+    if (!data || !data.url) {
+      throw new Error('Upload server returned an invalid response');
+    }
+    
     return data.url;
   } catch (error) {
     console.error('Error processing image URL:', error);
-    throw new Error('Failed to process image URL');
+    throw new Error(error instanceof Error ? error.message : 'Failed to process image URL');
   }
 }
 
