@@ -257,6 +257,12 @@ export default function Dashboard() {
       });
       return;
     }
+    
+    // Show a loading toast for the operation
+    const loadingToast = toast({
+      title: saveAsDraft ? "Saving draft" : "Creating post",
+      description: "Please wait...",
+    });
 
     try {
       // Handle file upload if a file was selected
@@ -289,6 +295,11 @@ export default function Dashboard() {
               console.error('Error parsing upload API response:', jsonError);
               errorMessage = `Upload failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
             }
+            console.error('Upload error details:', { 
+              status: uploadResponse.status, 
+              statusText: uploadResponse.statusText,
+              errorMessage 
+            });
             throw new Error(errorMessage);
           }
           
@@ -352,6 +363,11 @@ export default function Dashboard() {
               console.error('Error parsing upload API response:', jsonError);
               errorMessage = `Image processing failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
             }
+            console.error('Image processing error details:', { 
+              status: uploadResponse.status, 
+              statusText: uploadResponse.statusText,
+              errorMessage 
+            });
             throw new Error(errorMessage);
           }
           

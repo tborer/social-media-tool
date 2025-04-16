@@ -53,6 +53,7 @@ export async function processImageUrl(imageUrl: string): Promise<string> {
     formData.append('file', file);
     
     // Upload the file using our upload API
+    console.log('Uploading image via processImageUrl function...');
     const response = await fetch('/api/upload', {
       method: 'POST',
       body: formData,
@@ -67,6 +68,11 @@ export async function processImageUrl(imageUrl: string): Promise<string> {
         console.error('Error parsing upload API response:', jsonError);
         errorMessage = `Upload failed with status: ${response.status} ${response.statusText}`;
       }
+      console.error('processImageUrl upload error details:', { 
+        status: response.status, 
+        statusText: response.statusText,
+        errorMessage 
+      });
       throw new Error(errorMessage);
     }
     

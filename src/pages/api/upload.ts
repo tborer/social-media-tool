@@ -19,7 +19,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const supabase = createClient(req, res);
   
   // Get the user from the session
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { data, error: authError } = await supabase.auth.getUser();
+  const user = data?.user;
   
   if (authError || !user) {
     logger.error('Authentication error in upload API:', authError);
@@ -66,25 +67,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Try to upload to Supabase Storage first
       try {
         // Upload the file to Supabase Storage
-        const { data, error } = await supabase.storage
+        const uploadResult = await supabase.storage
           .from('uploads')
           .upload(`${user.id}/${fileName}`, createReadStream(file.filepath), {
             contentType: file.mimetype || 'application/octet-stream',
             cacheControl: '3600',
           });
 
-        if (error) {
-          throw error;
+        if (uploadResult.error) {
+          throw uploadResult.error;
         }
 
         // Get the public URL for the uploaded file
-        const { data: urlData } = supabase.storage
+        const urlResult = supabase.storage
           .from('uploads')
           .getPublicUrl(`${user.id}/${fileName}`);
 
         // Return the URL of the uploaded file
         return res.status(200).json({ 
-          url: urlData.publicUrl,
+          url: urlResult.data.publicUrl,
           fileName: fileName,
           originalName: file.originalFilename,
           size: file.size,
