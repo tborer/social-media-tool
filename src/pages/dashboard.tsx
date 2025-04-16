@@ -293,7 +293,13 @@ export default function Dashboard() {
               errorMessage = errorData.error || errorMessage;
             } catch (jsonError) {
               console.error('Error parsing upload API response:', jsonError);
-              errorMessage = `Upload failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
+              
+              // Handle specific HTTP status codes
+              if (uploadResponse.status === 405) {
+                errorMessage = 'Upload method not allowed. Please try again or contact support.';
+              } else {
+                errorMessage = `Upload failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
+              }
             }
             console.error('Upload error details:', { 
               status: uploadResponse.status, 
@@ -361,7 +367,13 @@ export default function Dashboard() {
               errorMessage = errorData.error || errorMessage;
             } catch (jsonError) {
               console.error('Error parsing upload API response:', jsonError);
-              errorMessage = `Image processing failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
+              
+              // Handle specific HTTP status codes
+              if (uploadResponse.status === 405) {
+                errorMessage = 'Upload method not allowed. Please try again or contact support.';
+              } else {
+                errorMessage = `Image processing failed with status: ${uploadResponse.status} ${uploadResponse.statusText}`;
+              }
             }
             console.error('Image processing error details:', { 
               status: uploadResponse.status, 
