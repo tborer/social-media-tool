@@ -42,10 +42,11 @@ async function getContentPost(req: NextApiRequest, res: NextApiResponse, postId:
         userId,
       },
       include: {
-        instagramAccount: {
+        socialMediaAccount: {
           select: {
             id: true,
             username: true,
+            accountType: true,
           },
         },
       },
@@ -64,7 +65,7 @@ async function getContentPost(req: NextApiRequest, res: NextApiResponse, postId:
 
 // Update a content post
 async function updateContentPost(req: NextApiRequest, res: NextApiResponse, postId: string, userId: string) {
-  const { caption, imageUrl, status, scheduledFor, instagramAccountId } = req.body;
+  const { caption, imageUrl, status, scheduledFor, socialMediaAccountId } = req.body;
   
   try {
     // Check if post exists and belongs to the user
@@ -79,17 +80,17 @@ async function updateContentPost(req: NextApiRequest, res: NextApiResponse, post
       return res.status(404).json({ error: 'Content post not found' });
     }
     
-    // If instagramAccountId is provided, verify it belongs to the user
-    if (instagramAccountId) {
-      const account = await prisma.instagramAccount.findFirst({
+    // If socialMediaAccountId is provided, verify it belongs to the user
+    if (socialMediaAccountId) {
+      const account = await prisma.socialMediaAccount.findFirst({
         where: {
-          id: instagramAccountId,
+          id: socialMediaAccountId,
           userId,
         },
       });
       
       if (!account) {
-        return res.status(400).json({ error: 'Invalid Instagram account' });
+        return res.status(400).json({ error: 'Invalid social media account' });
       }
     }
     
@@ -101,7 +102,7 @@ async function updateContentPost(req: NextApiRequest, res: NextApiResponse, post
         ...(imageUrl !== undefined && { imageUrl }),
         ...(status !== undefined && { status }),
         ...(scheduledFor !== undefined && { scheduledFor }),
-        ...(instagramAccountId !== undefined && { instagramAccountId }),
+        ...(socialMediaAccountId !== undefined && { socialMediaAccountId }),
       },
     });
     

@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
-import prisma from '@/lib/prisma';
+import { logger } from '@/lib/logger';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Create Supabase client for authentication
@@ -14,53 +14,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  // Only allow GET requests
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-  
   const { id } = req.query;
   
   if (!id || typeof id !== 'string') {
-    return res.status(400).json({ error: 'Instagram account ID is required' });
+    return res.status(400).json({ error: 'Invalid account ID' });
   }
   
+  // Log the request
   try {
-    // Check if the Instagram account belongs to the user
-    const account = await prisma.instagramAccount.findFirst({
-      where: {
+    await logger.serverLog({
+      type: 'CONTENT_POST',
+      endpoint: `/api/instagram-accounts/${id}/images`,
+      userId: user.id,
+      requestData: {
+        method: req.method,
         id,
-        userId: user.id
-      }
+      },
+      status: 301,
     });
-    
-    if (!account) {
-      return res.status(404).json({ error: 'Instagram account not found' });
-    }
-    
-    // In a real implementation, this would fetch images from the Instagram API
-    // For now, we'll return mock data
-    const mockImages = [
-      {
-        id: '1',
-        url: 'https://picsum.photos/id/1/500/500',
-        caption: 'Beautiful sunset #nature'
-      },
-      {
-        id: '2',
-        url: 'https://picsum.photos/id/2/500/500',
-        caption: 'Coffee time #lifestyle'
-      },
-      {
-        id: '3',
-        url: 'https://picsum.photos/id/3/500/500',
-        caption: 'Beach vibes #travel'
-      }
-    ];
-    
-    return res.status(200).json(mockImages);
-  } catch (error) {
-    console.error('Error fetching Instagram images:', error);
-    return res.status(500).json({ error: 'Failed to fetch Instagram images' });
+  } catch (logError) {
+    console.error('Error logging redirect:', logError);
   }
+  
+  // Redirect to the social media accounts endpoint
+  res.setHeader('Location', `/api/social-media-accounts/${id}/images`);
+  return res.status(301).json({ 
+    message: 'This endpoint is deprecated. Please use /api/social-media-accounts/:id/images instead.',
+    redirectTo: `/api/social-media-accounts/${id}/images`
+  });
 }
