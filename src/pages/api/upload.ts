@@ -70,14 +70,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Generate a unique file name
       const fileName = `${uuidv4()}-${file.originalFilename}`;
       
-      // Try to upload to Supabase Storage first
+      // Always try to upload to Supabase Storage
       try {
         logger.info(`Attempting to upload file to Supabase storage: ${fileName}`);
+        
+        // Create a readable stream from the file
+        const fileStream = createReadStream(file.filepath);
         
         // Upload the file to Supabase Storage
         const uploadResult = await supabase.storage
           .from('uploads')
-          .upload(`${user.id}/${fileName}`, createReadStream(file.filepath), {
+          .upload(`${user.id}/${fileName}`, fileStream, {
             contentType: file.mimetype || 'application/octet-stream',
             cacheControl: '3600',
           });
@@ -109,39 +112,96 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           type: file.mimetype
         });
       } catch (supabaseError) {
-        // If Supabase upload fails, fall back to temporary local storage
-        logger.warn('Supabase storage upload failed, using temporary storage:', supabaseError);
+        // If direct Supabase upload fails, try to upload the file as a buffer
+        logger.warn('Supabase storage stream upload failed, trying buffer upload:', supabaseError);
         
         try {
-          // Create a temporary directory for the user if it doesn't exist
-          const tempDir = path.join(os.tmpdir(), 'instacreate-temp', user.id);
-          await fs.mkdir(tempDir, { recursive: true });
+          // Read the file into a buffer
+          const fileBuffer = await fs.readFile(file.filepath);
           
-          // Copy the file to the temporary directory
-          const tempFilePath = path.join(tempDir, fileName);
-          await fs.copyFile(file.filepath, tempFilePath);
+          // Try to upload the buffer to Supabase Storage
+          const bufferUploadResult = await supabase.storage
+            .from('uploads')
+            .upload(`${user.id}/${fileName}`, fileBuffer, {
+              contentType: file.mimetype || 'application/octet-stream',
+              cacheControl: '3600',
+            });
+            
+          if (bufferUploadResult.error) {
+            logger.error('Supabase buffer upload error:', bufferUploadResult.error);
+            throw bufferUploadResult.error;
+          }
           
-          // Generate a temporary URL for the file
-          // In a real production environment, you would use a CDN or cloud storage
-          // For this demo, we'll create a base64 data URL
-          const fileBuffer = await fs.readFile(tempFilePath);
-          const base64Data = fileBuffer.toString('base64');
-          const dataUrl = `data:${file.mimetype || 'application/octet-stream'};base64,${base64Data}`;
+          // Get the public URL for the uploaded file
+          const urlResult = supabase.storage
+            .from('uploads')
+            .getPublicUrl(`${user.id}/${fileName}`);
+            
+          if (!urlResult || !urlResult.data) {
+            logger.error('Failed to get public URL for buffer-uploaded file');
+            throw new Error('Failed to get public URL for buffer-uploaded file');
+          }
           
-          logger.info(`File stored in temporary storage: ${fileName}`);
+          logger.info(`File uploaded successfully to Supabase using buffer: ${fileName}`);
           
-          // Return the data URL
+          // Return the URL of the uploaded file
           return res.status(200).json({
-            url: dataUrl,
+            url: urlResult.data.publicUrl,
             fileName: fileName,
             originalName: file.originalFilename,
             size: file.size,
-            type: file.mimetype,
-            isTemporary: true
+            type: file.mimetype
           });
-        } catch (tempStorageError) {
-          logger.error('Temporary storage fallback failed:', tempStorageError);
-          throw tempStorageError;
+        } catch (bufferUploadError) {
+          logger.error('Supabase buffer upload failed:', bufferUploadError);
+          
+          // Create a short URL for the temporary file
+          try {
+            // Create a temporary directory for the user if it doesn't exist
+            const tempDir = path.join(os.tmpdir(), 'instacreate-temp', user.id);
+            await fs.mkdir(tempDir, { recursive: true });
+            
+            // Copy the file to the temporary directory
+            const tempFilePath = path.join(tempDir, fileName);
+            await fs.copyFile(file.filepath, tempFilePath);
+            
+            // Create a short URL entry in Supabase
+            const shortId = uuidv4().split('-')[0]; // Use first part of UUID for shorter ID
+            
+            // Store the mapping in Supabase
+            const { error: mappingError } = await supabase
+              .from('url_mappings')
+              .insert({
+                short_id: shortId,
+                original_path: tempFilePath,
+                user_id: user.id,
+                file_name: fileName,
+                mime_type: file.mimetype || 'application/octet-stream'
+              });
+              
+            if (mappingError) {
+              logger.error('Error creating URL mapping:', mappingError);
+              throw mappingError;
+            }
+            
+            // Create a short URL that will be resolved by our API
+            const shortUrl = `/api/image/${shortId}`;
+            
+            logger.info(`Created short URL for temporary file: ${shortUrl}`);
+            
+            // Return the short URL
+            return res.status(200).json({
+              url: shortUrl,
+              fileName: fileName,
+              originalName: file.originalFilename,
+              size: file.size,
+              type: file.mimetype,
+              isTemporary: true
+            });
+          } catch (shortUrlError) {
+            logger.error('Failed to create short URL:', shortUrlError);
+            throw shortUrlError;
+          }
         }
       }
     } catch (formError) {

@@ -17,6 +17,7 @@ model User {
   contentPosts       ContentPost[]
   userSettings       UserSettings?
   logs               Log[]
+  urlMappings        UrlMapping[]
 }
 
 model SocialMediaAccount {
@@ -98,4 +99,17 @@ model UserSettings {
   usageResetDate    DateTime  @default(now())
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+}
+
+model UrlMapping {
+  id            String    @id @default(uuid())
+  short_id      String    @unique
+  original_path String
+  user_id       String    @db.Uuid
+  user          User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  file_name     String
+  mime_type     String
+  created_at    DateTime  @default(now())
+  accessed_at   DateTime?
+  access_count  Int       @default(0)
 }
