@@ -62,4 +62,20 @@ export async function fetchLogs(): Promise<any[]> {
 export const logger = {
   log: createLog,
   serverLog: createServerLog,
+  // Add console logging methods for convenience
+  info: (message: string, ...args: any[]) => {
+    console.info(message, ...args);
+  },
+  error: (message: string, ...args: any[]) => {
+    console.error(message, ...args);
+  },
+  warn: (message: string, ...args: any[]) => {
+    console.warn(message, ...args);
+  },
+  debug: (message: string, ...args: any[]) => {
+    console.debug(message, ...args);
+  }
 };
+
+// Default export for backward compatibility
+export default logger;

@@ -3,7 +3,7 @@ import { createClient } from '@/util/supabase/api';
 import { IncomingForm } from 'formidable';
 import { createReadStream, promises as fs } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import logger from '@/lib/logger';
+import { logger } from '@/lib/logger';
 import path from 'path';
 import os from 'os';
 
@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Check if the method is allowed
   if (req.method !== 'POST') {
     logger.error(`Method not allowed: ${req.method} for upload API`);
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Upload method not allowed. Please try again or contact support.' });
   }
 
   try {
