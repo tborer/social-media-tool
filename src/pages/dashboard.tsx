@@ -284,6 +284,7 @@ export default function Dashboard() {
           const uploadResponse = await fetch('/api/upload', {
             method: 'POST',
             body: formData,
+            credentials: 'include',
           });
           
           if (!uploadResponse.ok) {
@@ -358,6 +359,7 @@ export default function Dashboard() {
           const uploadResponse = await fetch('/api/upload', {
             method: 'POST',
             body: formData,
+            credentials: 'include',
           });
           
           if (!uploadResponse.ok) {
