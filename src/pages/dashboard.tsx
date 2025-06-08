@@ -178,7 +178,13 @@ export default function Dashboard() {
             const accountsData = await accountsResponse.json();
             setAccounts(accountsData);
           } else {
-            console.error('Failed to fetch social media accounts');
+            const errorText = await accountsResponse.text();
+            console.error('Failed to fetch social media accounts:', accountsResponse.status, errorText);
+            toast({
+              variant: "destructive",
+              title: "Error",
+              description: `Failed to fetch social media accounts. Status: ${accountsResponse.status}`,
+            });
           }
           
           // Fetch content posts
