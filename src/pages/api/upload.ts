@@ -27,12 +27,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Log request details for debugging
+    logger.info('Upload API - Request details:', {
+      method: req.method,
+      url: req.url,
+      headers: {
+        cookie: req.headers.cookie ? 'present' : 'missing',
+        authorization: req.headers.authorization ? 'present' : 'missing',
+        'content-type': req.headers['content-type'],
+        'user-agent': req.headers['user-agent'],
+      },
+      cookies: Object.keys(req.cookies),
+    });
+    
     // Create Supabase client for authentication
     const supabase = createClient(req, res);
     
     // Get the user from the session
     const { data, error: authError } = await supabase.auth.getUser();
     const user = data?.user;
+    
+    // Log authentication result
+    logger.info('Upload API - Authentication result:', {
+      hasUser: !!user,
+      userId: user?.id,
+      userEmail: user?.email,
+      authError: authError?.message,
+      authErrorCode: authError?.status,
+    });
     
     if (authError || !user) {
       logger.error('Authentication error in upload API:', authError);
