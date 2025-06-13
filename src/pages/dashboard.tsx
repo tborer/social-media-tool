@@ -67,6 +67,7 @@ function EditAccountForm({ account, onSuccess }: { account: SocialMediaAccount; 
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(formData),
+        credentials: 'include',
       });
       
       if (!response.ok) {
@@ -173,7 +174,7 @@ export default function Dashboard() {
       const fetchData = async () => {
         try {
           // Fetch social media accounts
-          const accountsResponse = await fetch('/api/social-media-accounts');
+          const accountsResponse = await fetch('/api/social-media-accounts', { credentials: 'include' });
           if (accountsResponse.ok) {
             const accountsData = await accountsResponse.json();
             setAccounts(accountsData);
@@ -188,7 +189,7 @@ export default function Dashboard() {
           }
           
           // Fetch content posts
-          const postsResponse = await fetch('/api/content-posts');
+          const postsResponse = await fetch('/api/content-posts', { credentials: 'include' });
           if (postsResponse.ok) {
             const postsData = await postsResponse.json();
             setPosts(postsData);
@@ -229,6 +230,7 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(newAccount),
+        credentials: 'include',
       });
       
       if (!response.ok) {
@@ -457,6 +459,7 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(postData),
+        credentials: 'include',
       });
       
       let errorMessage = 'Failed to create post';
@@ -664,7 +667,7 @@ export default function Dashboard() {
                             </DialogHeader>
                             <EditAccountForm account={account} onSuccess={() => {
                               // Refresh accounts after successful update
-                              fetch('/api/social-media-accounts')
+                              fetch('/api/social-media-accounts', { credentials: 'include' })
                                 .then(res => res.json())
                                 .then(data => setAccounts(data))
                                 .catch(err => console.error('Failed to refresh accounts:', err));
@@ -694,6 +697,7 @@ export default function Dashboard() {
                                   try {
                                     const response = await fetch(`/api/social-media-accounts/${account.id}`, {
                                       method: 'DELETE',
+                                      credentials: 'include',
                                     });
                                     
                                     if (!response.ok) {
@@ -1161,6 +1165,7 @@ export default function Dashboard() {
                                           body: JSON.stringify({
                                             postId: post.id,
                                           }),
+                                          credentials: 'include',
                                         });
                                         
                                         if (!response.ok) {
@@ -1319,6 +1324,7 @@ export default function Dashboard() {
                                 try {
                                   const response = await fetch(`/api/content-posts/${post.id}`, {
                                     method: 'DELETE',
+                                    credentials: 'include',
                                   });
                                   
                                   if (!response.ok) {
@@ -1449,6 +1455,7 @@ export default function Dashboard() {
                                             body: JSON.stringify({
                                               postId: post.id,
                                             }),
+                                            credentials: 'include',
                                           });
                                           
                                           if (!response.ok) {
