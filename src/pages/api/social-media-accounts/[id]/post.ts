@@ -3,9 +3,133 @@ import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 
-// Helper function to post to Instagram
-async function postToInstagram(accessToken: string, imageUrl: string, caption: string) {
+// Helper function to resolve image URL to a publicly accessible URL
+async function resolveImageUrl(imageUrl: string, supabase: any, userId: string) {
+  // If it's already a full URL, return as is
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+    return imageUrl;
+  }
+  
+  // If it's a temporary URL from our API, we need to get the actual file
+  if (imageUrl.startsWith('/api/image/')) {
+    const shortId = imageUrl.split('/').pop();
+    if (!shortId) {
+      throw new Error('Invalid temporary image URL');
+    }
+    
+    // Look up the URL mapping
+    const mapping = await prisma.urlMapping.findUnique({
+      where: { short_id: shortId }
+    });
+    
+    if (!mapping) {
+      throw new Error('Temporary image URL not found or expired');
+    }
+    
+    // Try to upload the file to Supabase storage if it's not already there
+    try {
+      // Check if file already exists in Supabase storage
+      const { data: existingFile } = await supabase.storage
+        .from('uploads')
+        .list(`${userId}/`, {
+          search: mapping.file_name
+        });
+      
+      if (existingFile && existingFile.length > 0) {
+        // File exists, get public URL
+        const { data: urlData } = supabase.storage
+          .from('uploads')
+          .getPublicUrl(`${userId}/${mapping.file_name}`);
+        
+        if (urlData?.publicUrl) {
+          return urlData.publicUrl;
+        }
+      }
+      
+      // File doesn't exist in storage, upload it
+      const fs = require('fs').promises;
+      const fileBuffer = await fs.readFile(mapping.original_path);
+      
+      const uploadResult = await supabase.storage
+        .from('uploads')
+        .upload(`${userId}/${mapping.file_name}`, fileBuffer, {
+          contentType: mapping.mime_type,
+          cacheControl: '3600',
+          upsert: true
+        });
+      
+      if (uploadResult.error) {
+        throw new Error(`Failed to upload file to storage: ${uploadResult.error.message}`);
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('uploads')
+        .getPublicUrl(`${userId}/${mapping.file_name}`);
+      
+      if (!urlData?.publicUrl) {
+        throw new Error('Failed to get public URL for uploaded file');
+      }
+      
+      return urlData.publicUrl;
+    } catch (error) {
+      throw new Error(`Failed to resolve temporary image URL: ${error.message}`);
+    }
+  }
+  
+  // If it's a relative URL, make it absolute
+  if (imageUrl.startsWith('/')) {
+    const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://localhost:3000';
+    return `${baseUrl}${imageUrl}`;
+  }
+  
+  return imageUrl;
+}
+
+// Helper function to post to Bluesky
+async function postToBluesky(accessToken: string, imageUrl: string, caption: string, supabase: any, userId: string) {
   try {
+    // Resolve the image URL to a publicly accessible URL
+    const resolvedImageUrl = await resolveImageUrl(imageUrl, supabase, userId);
+    
+    logger.info(`Posting to Bluesky with resolved image URL: ${resolvedImageUrl}`, { userId });
+    
+    // For now, Bluesky posting is not fully implemented
+    // This is a placeholder for future implementation
+    throw new Error('Bluesky posting is not yet implemented. Coming soon!');
+    
+  } catch (error) {
+    logger.error('Bluesky posting error:', error, { userId });
+    throw error;
+  }
+}
+
+// Helper function to post to X (Twitter)
+async function postToX(accessToken: string, imageUrl: string, caption: string, supabase: any, userId: string) {
+  try {
+    // Resolve the image URL to a publicly accessible URL
+    const resolvedImageUrl = await resolveImageUrl(imageUrl, supabase, userId);
+    
+    logger.info(`Posting to X with resolved image URL: ${resolvedImageUrl}`, { userId });
+    
+    // For now, X posting is not fully implemented
+    // This is a placeholder for future implementation
+    throw new Error('X (Twitter) posting is not yet implemented. Coming soon!');
+    
+  } catch (error) {
+    logger.error('X posting error:', error, { userId });
+    throw error;
+  }
+}
+
+// Helper function to post to Instagram
+async function postToInstagram(accessToken: string, imageUrl: string, caption: string, supabase: any, userId: string) {
+  try {
+    // Resolve the image URL to a publicly accessible URL
+    const resolvedImageUrl = await resolveImageUrl(imageUrl, supabase, userId);
+    
+    logger.info(`Posting to Instagram with resolved image URL: ${resolvedImageUrl}`, { userId });
+    
     // Step 1: Create a media container
     const createContainerResponse = await fetch(
       `https://graph.instagram.com/v22.0/me/media`,
@@ -16,7 +140,7 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
           'Authorization': `Bearer ${accessToken}`
         },
         body: JSON.stringify({
-          image_url: imageUrl,
+          image_url: resolvedImageUrl,
           caption: caption
         })
       }
@@ -24,6 +148,7 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
 
     if (!createContainerResponse.ok) {
       const errorData = await createContainerResponse.json();
+      logger.error('Instagram media container creation failed:', errorData, { userId });
       throw new Error(`Failed to create Instagram media container: ${JSON.stringify(errorData)}`);
     }
 
@@ -33,6 +158,8 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
     if (!containerId) {
       throw new Error('No container ID returned from Instagram API');
     }
+
+    logger.info(`Instagram media container created: ${containerId}`, { userId });
 
     // Step 2: Publish the container
     const publishResponse = await fetch(
@@ -51,16 +178,20 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
 
     if (!publishResponse.ok) {
       const errorData = await publishResponse.json();
+      logger.error('Instagram media publish failed:', errorData, { userId });
       throw new Error(`Failed to publish Instagram media: ${JSON.stringify(errorData)}`);
     }
 
     const publishData = await publishResponse.json();
+    logger.info(`Instagram media published successfully: ${publishData.id}`, { userId });
+    
     return {
       success: true,
-      mediaId: publishData.id
+      mediaId: publishData.id,
+      resolvedImageUrl
     };
   } catch (error) {
-    console.error('Instagram posting error:', error);
+    logger.error('Instagram posting error:', error, { userId });
     throw error;
   }
 }
@@ -131,12 +262,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       postResult = await postToInstagram(
         account.accessToken,
         post.imageUrl,
-        post.caption
+        post.caption,
+        supabase,
+        user.id
+      );
+    } else if (account.accountType === 'BLUESKY') {
+      // Post to Bluesky
+      postResult = await postToBluesky(
+        account.accessToken,
+        post.imageUrl,
+        post.caption,
+        supabase,
+        user.id
+      );
+    } else if (account.accountType === 'X') {
+      // Post to X (Twitter)
+      postResult = await postToX(
+        account.accessToken,
+        post.imageUrl,
+        post.caption,
+        supabase,
+        user.id
       );
     } else {
-      // For other platforms, we'll implement later
       return res.status(400).json({ 
-        error: `Posting to ${account.accountType} is not implemented yet` 
+        error: `Unknown account type: ${account.accountType}` 
       });
     }
     

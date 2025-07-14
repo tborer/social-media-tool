@@ -173,15 +173,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(500).json({ error: 'File access error. Please try again.' });
         }
         
-        // Create a readable stream from the file
-        const fileStream = createReadStream(file.filepath);
+        // Read the file into a buffer (more reliable than streams)
+        let fileBuffer;
+        try {
+          fileBuffer = await fs.readFile(file.filepath);
+          logger.info(`Successfully read file into buffer, size: ${fileBuffer.length} bytes`, { userId: user.id });
+        } catch (readError) {
+          logger.error(`Error reading file into buffer: ${readError.message}`, readError, { userId: user.id });
+          throw readError;
+        }
         
-        // Upload the file to Supabase Storage
+        // Upload the buffer to Supabase Storage
         const uploadResult = await supabase.storage
           .from('uploads')
-          .upload(`${user.id}/${fileName}`, fileStream, {
+          .upload(`${user.id}/${fileName}`, fileBuffer, {
             contentType: file.mimetype || 'application/octet-stream',
             cacheControl: '3600',
+            upsert: true, // Allow overwriting if file exists
           });
 
         if (uploadResult.error) {
