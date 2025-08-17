@@ -17,6 +17,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
 import LogsViewer from "@/components/LogsViewer";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
 
 type SocialMediaAccount = {
@@ -167,6 +168,14 @@ export default function Dashboard() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
+  
+  // Instagram Insights state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [isGeneratingInspired, setIsGeneratingInspired] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState("");
 
   // Fetch social media accounts and content posts
   useEffect(() => {
@@ -533,6 +542,99 @@ export default function Dashboard() {
     });
   };
 
+  // Instagram Insights functions
+  const handleInstagramSearch = async () => {
+    if (!searchQuery.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please enter a search term",
+      });
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(`/api/instagram/search?query=${encodeURIComponent(searchQuery)}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to search Instagram content');
+      }
+
+      const data = await response.json();
+      setSearchResults(data.results || []);
+      
+      toast({
+        title: "Search Complete",
+        description: `Found ${data.results?.length || 0} posts`,
+      });
+    } catch (error) {
+      console.error('Error searching Instagram:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to search Instagram content",
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleGenerateInspiredContent = async (post: any) => {
+    setIsGeneratingInspired(true);
+    try {
+      const response = await fetch('/api/instagram/inspire', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inspirationPost: post,
+          contentType: 'IMAGE',
+          customPrompt: customPrompt.trim() || undefined
+        }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate inspired content');
+      }
+
+      const data = await response.json();
+      
+      // Set the generated content to the new post form
+      setNewPost({
+        caption: data.generatedContent.caption || "",
+        imageUrl: data.generatedContent.imageUrls?.[0] || "",
+        imageFile: null,
+        socialMediaAccountId: "",
+        contentType: "IMAGE",
+        scheduledFor: null
+      });
+      
+      // Close insights and open create post dialog
+      setSelectedPost(null);
+      setCustomPrompt("");
+      setIsCreatingPost(true);
+      
+      toast({
+        title: "Content Generated",
+        description: "AI-generated content inspired by the selected post has been created",
+      });
+    } catch (error) {
+      console.error('Error generating inspired content:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate inspired content",
+      });
+    } finally {
+      setIsGeneratingInspired(false);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-background flex-col">
@@ -566,6 +668,7 @@ export default function Dashboard() {
             <TabsList className="mb-6">
               <TabsTrigger value="accounts">Social Media Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
+              <TabsTrigger value="insights">Instagram Insights</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
               <TabsTrigger value="logging">Logging</TabsTrigger>
             </TabsList>
@@ -900,7 +1003,7 @@ export default function Dashboard() {
                                     </Button>
                                   </PopoverTrigger>
                                   <PopoverContent className="w-auto p-0">
-                                    <Calendar
+                                    <CalendarComponent
                                       mode="single"
                                       selected={newPost.scheduledFor ? new Date(newPost.scheduledFor) : undefined}
                                       onSelect={(date) => {
@@ -1545,6 +1648,271 @@ export default function Dashboard() {
                   )}
                 </TabsContent>
               </Tabs>
+            </TabsContent>
+            
+            <TabsContent value="insights">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold">Instagram Insights</h2>
+                <div className="text-sm text-muted-foreground">
+                  Discover high-performing content for inspiration
+                </div>
+              </div>
+              
+              {/* Search Section */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Instagram className="h-5 w-5 mr-2 text-pink-500" />
+                    Search Instagram Content
+                  </CardTitle>
+                  <CardDescription>
+                    Search for trending posts, hashtags, or accounts to find inspiration for your content.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Search for posts, hashtags, or usernames..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleInstagramSearch();
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <Button 
+                      onClick={handleInstagramSearch}
+                      disabled={isSearching}
+                    >
+                      {isSearching ? (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          Searching...
+                        </>
+                      ) : (
+                        "Search"
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Try searching for topics like "travel", "food", "fitness", or specific hashtags like "#photography"
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Search Results */}
+              {searchResults.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-4">Search Results ({searchResults.length} posts found)</h3>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {searchResults.map((post) => (
+                      <Card key={post.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">
+                                  {post.username.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">@{post.username}</p>
+                                <div className="flex items-center gap-1">
+                                  <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium ${
+                                    post.accountType === 'business' ? 'bg-blue-100 text-blue-800' :
+                                    post.accountType === 'creator' ? 'bg-purple-100 text-purple-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {post.accountType}
+                                  </span>
+                                  {post.verified && (
+                                    <svg className="w-3 h-3 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                    </svg>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right text-xs text-muted-foreground">
+                              <div>{post.likes.toLocaleString()} likes</div>
+                              <div>{post.comments.toLocaleString()} comments</div>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          {post.imageUrl && (
+                            <div className="aspect-square relative mb-3 rounded-md overflow-hidden">
+                              <img 
+                                src={post.imageUrl} 
+                                alt="Instagram post" 
+                                className="object-cover w-full h-full"
+                              />
+                            </div>
+                          )}
+                          <p className="text-sm line-clamp-3 mb-2">{post.caption}</p>
+                          <div className="flex flex-wrap gap-1 mb-3">
+                            {post.hashtags.slice(0, 3).map((hashtag: string, index: number) => (
+                              <span key={index} className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700">
+                                {hashtag}
+                              </span>
+                            ))}
+                            {post.hashtags.length > 3 && (
+                              <span className="text-xs text-muted-foreground">
+                                +{post.hashtags.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs text-muted-foreground">
+                              {new Date(post.timestamp).toLocaleDateString()}
+                            </div>
+                            <Button 
+                              size="sm" 
+                              onClick={() => setSelectedPost(post)}
+                            >
+                              Use as Inspiration
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No Results Message */}
+              {searchQuery && searchResults.length === 0 && !isSearching && (
+                <Card>
+                  <CardContent className="text-center py-8">
+                    <Instagram className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-medium mb-2">No posts found</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Try searching with different keywords or hashtags.
+                    </p>
+                    <Button variant="outline" onClick={() => {
+                      setSearchQuery("");
+                      setSearchResults([]);
+                    }}>
+                      Clear Search
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Getting Started Message */}
+              {!searchQuery && searchResults.length === 0 && (
+                <Card>
+                  <CardContent className="text-center py-8">
+                    <Instagram className="h-12 w-12 mx-auto mb-4 text-pink-500" />
+                    <h3 className="text-lg font-medium mb-2">Discover Inspiring Content</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Search for high-performing Instagram posts to inspire your content creation. 
+                      Find trending hashtags, successful post formats, and engaging captions.
+                    </p>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {['travel', 'food', 'fitness', 'photography', 'fashion'].map((suggestion) => (
+                        <Button 
+                          key={suggestion}
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            setSearchQuery(suggestion);
+                            handleInstagramSearch();
+                          }}
+                        >
+                          {suggestion}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Inspiration Dialog */}
+              <Dialog open={!!selectedPost} onOpenChange={() => setSelectedPost(null)}>
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
+                  <DialogHeader>
+                    <DialogTitle>Create Inspired Content</DialogTitle>
+                    <DialogDescription>
+                      Generate similar content based on this high-performing post
+                    </DialogDescription>
+                  </DialogHeader>
+                  {selectedPost && (
+                    <ScrollArea className="max-h-[60vh] pr-4">
+                      <div className="grid gap-4 py-4">
+                        {/* Original Post Preview */}
+                        <div className="rounded-md bg-muted p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
+                              <span className="text-white text-xs font-bold">
+                                {selectedPost.username.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">@{selectedPost.username}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedPost.likes.toLocaleString()} likes • {selectedPost.comments.toLocaleString()} comments
+                              </p>
+                            </div>
+                          </div>
+                          {selectedPost.imageUrl && (
+                            <div className="aspect-square relative mb-3 rounded-md overflow-hidden max-w-[200px]">
+                              <img 
+                                src={selectedPost.imageUrl} 
+                                alt="Original post" 
+                                className="object-cover w-full h-full"
+                              />
+                            </div>
+                          )}
+                          <p className="text-sm mb-2">{selectedPost.caption}</p>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedPost.hashtags.slice(0, 5).map((hashtag: string, index: number) => (
+                              <span key={index} className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700">
+                                {hashtag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Custom Prompt */}
+                        <div className="grid gap-2">
+                          <Label htmlFor="custom-prompt">Custom Instructions (Optional)</Label>
+                          <Textarea
+                            id="custom-prompt"
+                            value={customPrompt}
+                            onChange={(e) => setCustomPrompt(e.target.value)}
+                            placeholder="Add specific instructions for the AI, like your brand voice, target audience, or specific elements to include..."
+                            className="min-h-[80px]"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Example: "Make it more casual and fun, target young professionals, include a call-to-action"
+                          </p>
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  )}
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setSelectedPost(null)}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={() => selectedPost && handleGenerateInspiredContent(selectedPost)}
+                      disabled={isGeneratingInspired}
+                    >
+                      {isGeneratingInspired ? (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        "Generate Inspired Content"
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </TabsContent>
             
             <TabsContent value="wordpress">
