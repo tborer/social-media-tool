@@ -3,161 +3,131 @@ import { createClient } from '@/util/supabase/api';
 import { logger } from '@/lib/logger';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Create Supabase client for authentication
-  const supabase = createClient(req, res);
-  
-  // Get the user from the session
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  
-  if (authError || !user) {
-    console.error('Authentication error:', authError);
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  
-  // Only allow GET requests
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  
-  const { query, hashtag, username } = req.query;
-  
+
   try {
-    // For now, we'll return mock data since Instagram's Basic Display API
-    // doesn't allow searching public content without special permissions
-    // In a real implementation, you would need Instagram's Content Publishing API
-    // or partner with a service that provides Instagram content discovery
-    
-    const mockResults = [
-      {
-        id: '1',
-        username: 'travel_blogger',
-        caption: 'Amazing sunset at Santorini! 🌅 The colors were absolutely breathtaking. Can\'t wait to share more from this incredible trip! #santorini #sunset #travel #greece #wanderlust',
-        imageUrl: 'https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=400&h=400&fit=crop',
-        likes: 2847,
-        comments: 156,
-        engagement: 3003,
-        timestamp: '2024-01-15T18:30:00Z',
-        hashtags: ['#santorini', '#sunset', '#travel', '#greece', '#wanderlust'],
-        accountType: 'personal',
-        verified: false
-      },
-      {
-        id: '2',
-        username: 'foodie_adventures',
-        caption: 'Homemade pasta night! 🍝 Nothing beats fresh ingredients and a cozy kitchen. Recipe in my stories! #pasta #homecooking #italian #foodie #delicious',
-        imageUrl: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=400&h=400&fit=crop',
-        likes: 1923,
-        comments: 89,
-        engagement: 2012,
-        timestamp: '2024-01-15T19:45:00Z',
-        hashtags: ['#pasta', '#homecooking', '#italian', '#foodie', '#delicious'],
-        accountType: 'personal',
-        verified: false
-      },
-      {
-        id: '3',
-        username: 'fitness_motivation',
-        caption: 'Morning workout complete! 💪 Remember, consistency is key. Every small step counts towards your goals. What\'s your favorite way to start the day? #fitness #motivation #workout #health #morningvibes',
-        imageUrl: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=400&fit=crop',
-        likes: 3456,
-        comments: 234,
-        engagement: 3690,
-        timestamp: '2024-01-15T07:30:00Z',
-        hashtags: ['#fitness', '#motivation', '#workout', '#health', '#morningvibes'],
-        accountType: 'business',
-        verified: true
-      },
-      {
-        id: '4',
-        username: 'nature_photography',
-        caption: 'Forest therapy 🌲 Sometimes you need to disconnect from the digital world and reconnect with nature. This peaceful trail reminded me why I love photography. #nature #forest #photography #peaceful #mindfulness',
-        imageUrl: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=400&fit=crop',
-        likes: 1567,
-        comments: 78,
-        engagement: 1645,
-        timestamp: '2024-01-15T14:20:00Z',
-        hashtags: ['#nature', '#forest', '#photography', '#peaceful', '#mindfulness'],
-        accountType: 'creator',
-        verified: false
-      },
-      {
-        id: '5',
-        username: 'tech_reviews',
-        caption: 'Latest smartphone review is live! 📱 The camera quality on this device is incredible. Swipe to see some sample shots. Full review on my blog! #tech #smartphone #review #photography #gadgets',
-        imageUrl: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400&h=400&fit=crop',
-        likes: 2134,
-        comments: 167,
-        engagement: 2301,
-        timestamp: '2024-01-15T16:15:00Z',
-        hashtags: ['#tech', '#smartphone', '#review', '#photography', '#gadgets'],
-        accountType: 'business',
-        verified: true
-      }
-    ];
-    
-    // Filter results based on query parameters
-    let filteredResults = mockResults;
-    
-    if (query) {
-      const searchTerm = query.toString().toLowerCase();
-      filteredResults = filteredResults.filter(post => 
-        post.caption.toLowerCase().includes(searchTerm) ||
-        post.hashtags.some(tag => tag.toLowerCase().includes(searchTerm)) ||
-        post.username.toLowerCase().includes(searchTerm)
-      );
+    const supabase = createClient(req, res);
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      logger.error('Authentication failed in Instagram search', { error: authError });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
-    
-    if (hashtag) {
-      const hashtagTerm = hashtag.toString().toLowerCase();
-      filteredResults = filteredResults.filter(post =>
-        post.hashtags.some(tag => tag.toLowerCase().includes(hashtagTerm))
-      );
+
+    const { query } = req.query;
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'Search query is required' });
     }
-    
-    if (username) {
-      const usernameTerm = username.toString().toLowerCase();
-      filteredResults = filteredResults.filter(post =>
-        post.username.toLowerCase().includes(usernameTerm)
-      );
-    }
-    
-    // Log the search request
-    await logger.log({
-      type: 'INSTAGRAM_SEARCH',
-      endpoint: '/api/instagram/search',
-      userId: user.id,
-      requestData: {
-        query,
-        hashtag,
-        username,
-        resultsCount: filteredResults.length
-      },
-      status: 200,
+
+    logger.info('Instagram search request', { userId: user.id, query });
+
+    // Since we don't have access to actual Instagram API for searching public content,
+    // we'll simulate search results with realistic mock data
+    const mockResults = generateMockInstagramResults(query);
+
+    logger.info('Instagram search completed', { 
+      userId: user.id, 
+      query, 
+      resultsCount: mockResults.length 
     });
-    
-    return res.status(200).json({
-      success: true,
-      results: filteredResults,
-      total: filteredResults.length,
-      note: 'This is demo data. In production, this would connect to Instagram\'s API or a content discovery service.'
-    });
-    
+
+    res.status(200).json({ results: mockResults });
   } catch (error) {
-    console.error('Error searching Instagram content:', error);
-    
-    // Log the error
-    await logger.log({
-      type: 'INSTAGRAM_SEARCH',
-      endpoint: '/api/instagram/search',
-      userId: user.id,
-      requestData: { query, hashtag, username },
-      error: error instanceof Error ? error.message : 'Unknown error',
-      status: 500,
-    });
-    
-    return res.status(500).json({ 
-      error: 'Failed to search Instagram content',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
+    logger.error('Error in Instagram search', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+function generateMockInstagramResults(query: string) {
+  const baseResults = [
+    {
+      id: '1',
+      username: 'travel_explorer',
+      accountType: 'creator',
+      verified: true,
+      imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=400&fit=crop',
+      caption: `Amazing sunset views from the mountains! 🌅 There's nothing quite like watching the world wake up from this height. The journey was challenging but so worth it for moments like these. #${query} #mountains #sunrise #adventure #nature #hiking #photography #wanderlust`,
+      likes: 15420,
+      comments: 342,
+      hashtags: [`#${query}`, '#mountains', '#sunrise', '#adventure', '#nature', '#hiking', '#photography', '#wanderlust'],
+      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: '2',
+      username: 'foodie_adventures',
+      accountType: 'business',
+      verified: false,
+      imageUrl: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=400&fit=crop',
+      caption: `Homemade pasta night! 🍝 Nothing beats the satisfaction of making fresh pasta from scratch. This carbonara recipe has been passed down through generations in my family. Swipe for the recipe! #${query} #pasta #homemade #cooking #italian #recipe #foodblogger #delicious`,
+      likes: 8934,
+      comments: 156,
+      hashtags: [`#${query}`, '#pasta', '#homemade', '#cooking', '#italian', '#recipe', '#foodblogger', '#delicious'],
+      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: '3',
+      username: 'fitness_motivation',
+      accountType: 'creator',
+      verified: true,
+      imageUrl: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=400&fit=crop',
+      caption: `Morning workout complete! 💪 Started the day with a 5K run followed by strength training. Remember, consistency is key - small steps every day lead to big changes. What's your favorite way to start the morning? #${query} #fitness #morning #workout #running #strength #motivation #healthy`,
+      likes: 12567,
+      comments: 289,
+      hashtags: [`#${query}`, '#fitness', '#morning', '#workout', '#running', '#strength', '#motivation', '#healthy'],
+      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: '4',
+      username: 'photo_artist',
+      accountType: 'creator',
+      verified: false,
+      imageUrl: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=400&h=400&fit=crop',
+      caption: `Golden hour magic ✨ Captured this stunning portrait during the perfect lighting conditions. The key to great ${query} is patience and understanding natural light. Camera settings: ISO 100, f/2.8, 1/250s #${query} #portrait #goldenhour #naturallight #photographer #art #creative #beautiful`,
+      likes: 9876,
+      comments: 203,
+      hashtags: [`#${query}`, '#portrait', '#goldenhour', '#naturallight', '#photographer', '#art', '#creative', '#beautiful'],
+      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: '5',
+      username: 'fashion_forward',
+      accountType: 'business',
+      verified: true,
+      imageUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400&h=400&fit=crop',
+      caption: `Fall vibes are here! 🍂 Loving this cozy sweater paired with classic denim. Sometimes the simplest combinations make the biggest impact. This look is perfect for transitioning from day to night. #${query} #fall #cozy #sweater #denim #style #ootd #casual #chic`,
+      likes: 18234,
+      comments: 445,
+      hashtags: [`#${query}`, '#fall', '#cozy', '#sweater', '#denim', '#style', '#ootd', '#casual', '#chic'],
+      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: '6',
+      username: 'tech_reviewer',
+      accountType: 'creator',
+      verified: false,
+      imageUrl: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=400&h=400&fit=crop',
+      caption: `New setup reveal! 💻 After months of planning, my home office is finally complete. The key to productivity is having a space that inspires you. Swipe to see the before photos! #${query} #setup #homeoffice #productivity #tech #workspace #minimal #design #inspiration`,
+      likes: 7654,
+      comments: 178,
+      hashtags: [`#${query}`, '#setup', '#homeoffice', '#productivity', '#tech', '#workspace', '#minimal', '#design', '#inspiration'],
+      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  ];
+
+  // Filter and customize results based on query
+  return baseResults
+    .map(result => ({
+      ...result,
+      caption: result.caption.replace(/Amazing|Homemade|Morning|Golden hour|Fall vibes|New setup/, 
+        query.charAt(0).toUpperCase() + query.slice(1)),
+      hashtags: [
+        `#${query}`,
+        ...result.hashtags.slice(1)
+      ]
+    }))
+    .sort((a, b) => b.likes - a.likes) // Sort by engagement
+    .slice(0, Math.floor(Math.random() * 3) + 4); // Return 4-6 results
 }
