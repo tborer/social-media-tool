@@ -7,6 +7,16 @@ import { logger } from '@/lib/logger';
 import { LogType } from '@prisma/client';
 import prisma from '@/lib/prisma';
 
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+]);
+
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
 // Disable the default body parser to handle multipart/form-data
 export const config = {
   api: {
@@ -139,6 +149,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           },
         },
       });
+
+      // Validate content type
+      if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
+        const errorMsg = 'Unsupported file type. Please upload an image (JPEG, PNG, WebP, GIF, or AVIF).';
+        logger.error(errorMsg, { userId: user.id, mimeType });
+
+        await prisma.log.update({
+          where: { id: logEntry.id },
+          data: { error: errorMsg, status: 415 },
+        });
+
+        return res.status(415).json({ error: errorMsg });
+      }
+
+      // Validate size (defensive)
+      if (!size || size <= 0) {
+        const errorMsg = 'The uploaded file is empty. Please try another image.';
+        logger.error(errorMsg, { userId: user.id });
+
+        await prisma.log.update({
+          where: { id: logEntry.id },
+          data: { error: errorMsg, status: 400 },
+        });
+
+        return res.status(400).json({ error: errorMsg });
+      }
+
+      if (size > MAX_FILE_SIZE_BYTES) {
+        const errorMsg = 'This file is too large. The maximum allowed size is 10MB.';
+        logger.error(errorMsg, { userId: user.id, size });
+
+        await prisma.log.update({
+          where: { id: logEntry.id },
+          data: { error: errorMsg, status: 413 },
+        });
+
+        return res.status(413).json({ error: errorMsg });
+      }
 
       const fileName = `${uuidv4()}-${originalName}`;
 
