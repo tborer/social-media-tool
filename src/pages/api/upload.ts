@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import { IncomingForm } from 'formidable';
-import { createReadStream, promises as fs } from 'fs';
+import { promises as fs, constants as FS_CONSTANTS } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/lib/logger';
 import path from 'path';
@@ -156,7 +156,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         
         // Check if file exists and is readable
         try {
-          await fs.access(file.filepath, fs.constants.R_OK);
+          await fs.access(file.filepath, FS_CONSTANTS.R_OK);
           logger.info(`File is accessible at path: ${file.filepath}`, { userId: user.id });
         } catch (accessError) {
           logger.error(`File access error: ${accessError.message}`, accessError, { userId: user.id });

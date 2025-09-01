@@ -60,7 +60,7 @@ export default function AIContentGenerator({
   const fetchInstagramImages = async (accountId: string) => {
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/social-media-accounts/${accountId}/images`);
+      const response = await fetch(`/api/social-media-accounts/${accountId}/images`, { credentials: 'include' });
       if (!response.ok) {
         throw new Error('Failed to fetch social media images');
       }
@@ -114,6 +114,7 @@ export default function AIContentGenerator({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ prompt, provider: selectedLLM }),
+        credentials: 'include',
       });
       
       if (!response.ok) {
@@ -160,6 +161,7 @@ export default function AIContentGenerator({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ prompt, count: imageCount, provider: selectedLLM }),
+        credentials: 'include',
       });
       
       if (!response.ok) {
