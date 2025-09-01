@@ -4,12 +4,10 @@ import { IncomingForm } from 'formidable';
 import { promises as fs, constants as FS_CONSTANTS } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/lib/logger';
-import path from 'path';
-import os from 'os';
 import { LogType } from '@prisma/client';
 import prisma from '@/lib/prisma';
 
-// Disable the default body parser to handle form data
+// Disable the default body parser to handle multipart/form-data
 export const config = {
   api: {
     bodyParser: false,
@@ -17,17 +15,14 @@ export const config = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Log the request method for debugging
   logger.info(`Upload API called with method: ${req.method}`);
-  
-  // Check if the method is allowed
+
   if (req.method !== 'POST') {
     logger.error(`Method not allowed: ${req.method} for upload API`);
-    return res.status(405).json({ error: 'Upload method not allowed. Please try again or contact support.' });
+    return res.status(405).json({ error: 'Upload method not allowed.' });
   }
 
   try {
-    // Log request details for debugging
     logger.info('Upload API - Request details:', {
       method: req.method,
       url: req.url,
@@ -37,30 +32,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'content-type': req.headers['content-type'],
         'user-agent': req.headers['user-agent'],
       },
-      cookies: Object.keys(req.cookies),
+      cookies: Object.keys(req.cookies || {}),
     });
-    
-    // Create Supabase client for authentication
+
     const supabase = createClient(req, res);
-    
-    // Get the user from the session
     const { data, error: authError } = await supabase.auth.getUser();
     const user = data?.user;
-    
-    // Log authentication result
+
     logger.info('Upload API - Authentication result:', {
       hasUser: !!user,
       userId: user?.id,
       userEmail: user?.email,
-      authError: authError?.message,
-      authErrorCode: authError?.status,
+      authError: (authError as any)?.message,
+      authErrorCode: (authError as any)?.status,
     });
-    
+
     if (authError || !user) {
       logger.error('Authentication error in upload API:', authError);
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: 'You must be signed in to upload files.' });
     }
-    
+
     // Create a log entry for this upload attempt
     const logEntry = await prisma.log.create({
       data: {
@@ -70,31 +61,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         userId: user.id,
       },
     });
-    
-    // Parse the incoming form data
+
+    // Parse incoming multipart form
     const form = new IncomingForm({
       keepExtensions: true,
-      maxFileSize: 10 * 1024 * 1024, // 10MB limit
+      maxFileSize: 10 * 1024 * 1024, // 10MB
+      multiples: false,
     });
 
-    // Wrap form parsing in a promise to handle errors properly
-    const parseForm = () => {
-      return new Promise((resolve, reject) => {
+    const parseForm = () =>
+      new Promise<{ fields: any; files: any }>((resolve, reject) => {
         form.parse(req, (err, fields, files) => {
-          if (err) {
-            reject(err);
-            return;
-          }
+          if (err) return reject(err);
           resolve({ fields, files });
         });
       });
-    };
 
     try {
-      // Parse the form data
-      const { fields, files } = await parseForm() as any;
-      
-      // Update log with form parsing result
+      const { fields, files } = (await parseForm()) as any;
+
       await prisma.log.update({
         where: { id: logEntry.id },
         data: {
@@ -102,362 +87,180 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             method: req.method,
             headers: req.headers,
             fields: fields || {},
-            filesInfo: files ? Object.keys(files).map(key => ({
-              fieldName: key,
-              count: files[key]?.length || 0
-            })) : []
-          }
-        }
+            filesInfo: files
+              ? Object.keys(files).map((key) => ({
+                  fieldName: key,
+                  count: Array.isArray(files[key]) ? files[key].length : files[key] ? 1 : 0,
+                }))
+              : [],
+          },
+        },
       });
-      
-      // Get the uploaded file
-      const file = files.file?.[0];
-      if (!file) {
-        const errorMsg = 'No file uploaded or file field missing';
+
+      // Support both array and single-file shapes from formidable
+      const uploaded: any =
+        (files as any)?.file?.[0] ||
+        (files as any)?.file ||
+        (Object.values(files || {})[0] as any)?.[0] ||
+        Object.values(files || {})[0];
+
+      if (!uploaded) {
+        const errorMsg = 'No file was uploaded. Please attach an image and try again.';
         logger.error(errorMsg, { userId: user.id });
-        
-        // Update log with error
+
         await prisma.log.update({
           where: { id: logEntry.id },
-          data: {
-            error: errorMsg,
-            status: 400
-          }
+          data: { error: errorMsg, status: 400 },
         });
-        
+
         return res.status(400).json({ error: errorMsg });
       }
 
-      // Log file details
-      logger.info(`File details: name=${file.originalFilename}, size=${file.size}, type=${file.mimetype}`, { userId: user.id });
-      
-      // Update log with file details
+      const filePath: string = uploaded.filepath;
+      const originalName: string = uploaded.originalFilename || 'upload';
+      const mimeType: string = uploaded.mimetype || 'application/octet-stream';
+      const size: number = uploaded.size || 0;
+
+      logger.info(`File details: name=${originalName}, size=${size}, type=${mimeType}`, { userId: user.id });
+
       await prisma.log.update({
         where: { id: logEntry.id },
         data: {
           requestData: {
-            ...logEntry.requestData as any,
+            method: req.method,
+            headers: req.headers,
+            fields: fields || {},
             fileDetails: {
-              name: file.originalFilename,
-              size: file.size,
-              type: file.mimetype,
-              filepath: file.filepath
-            }
-          }
-        }
+              name: originalName,
+              size,
+              type: mimeType,
+              filepath: filePath,
+            },
+          },
+        },
       });
 
-      // Generate a unique file name
-      const fileName = `${uuidv4()}-${file.originalFilename}`;
-      
-      // Always try to upload to Supabase Storage
+      const fileName = `${uuidv4()}-${originalName}`;
+
+      // Single, reliable path: read to Buffer and upload to Supabase Storage
       try {
-        logger.info(`Attempting to upload file to Supabase storage: ${fileName}`, { userId: user.id });
-        
-        // Check if file exists and is readable
-        try {
-          await fs.access(file.filepath, FS_CONSTANTS.R_OK);
-          logger.info(`File is accessible at path: ${file.filepath}`, { userId: user.id });
-        } catch (accessError) {
-          logger.error(`File access error: ${accessError.message}`, accessError, { userId: user.id });
-          
-          // Update log with error
+        // Ensure file is readable
+        await fs.access(filePath, FS_CONSTANTS.R_OK);
+        logger.info(`File is accessible at path: ${filePath}`, { userId: user.id });
+
+        // Read file into memory
+        const buffer = await fs.readFile(filePath);
+        logger.info(`Read file into buffer, size: ${buffer.length} bytes`, { userId: user.id });
+
+        const storagePath = `${user.id}/${fileName}`;
+        const uploadResult = await supabase.storage.from('uploads').upload(storagePath, buffer, {
+          contentType: mimeType,
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+        if ((uploadResult as any)?.error) {
+          const err: any = (uploadResult as any).error;
+          logger.error('Supabase storage upload error:', err, { userId: user.id });
+
           await prisma.log.update({
             where: { id: logEntry.id },
             data: {
-              error: `File access error: ${accessError.message}`,
-              status: 500
-            }
-          });
-          
-          return res.status(500).json({ error: 'File access error. Please try again.' });
-        }
-        
-        // Read the file into a buffer (more reliable than streams)
-        let fileBuffer;
-        try {
-          fileBuffer = await fs.readFile(file.filepath);
-          logger.info(`Successfully read file into buffer, size: ${fileBuffer.length} bytes`, { userId: user.id });
-        } catch (readError) {
-          logger.error(`Error reading file into buffer: ${readError.message}`, readError, { userId: user.id });
-          throw readError;
-        }
-        
-        // Upload the buffer to Supabase Storage
-        const uploadResult = await supabase.storage
-          .from('uploads')
-          .upload(`${user.id}/${fileName}`, fileBuffer, {
-            contentType: file.mimetype || 'application/octet-stream',
-            cacheControl: '3600',
-            upsert: true, // Allow overwriting if file exists
+              error: `Supabase upload failed: ${err.message || 'Unknown error'}`,
+              status: 500,
+            },
           });
 
-        if (uploadResult.error) {
-          logger.error('Supabase storage upload error:', uploadResult.error, { userId: user.id });
-          throw uploadResult.error;
+          return res.status(500).json({
+            error: 'We could not upload your file right now. Please try again in a moment.',
+            reference: logEntry.id,
+          });
         }
 
-        // Get the public URL for the uploaded file
-        const urlResult = supabase.storage
-          .from('uploads')
-          .getPublicUrl(`${user.id}/${fileName}`);
-
-        // Check if urlResult.data exists before accessing publicUrl
-        if (!urlResult || !urlResult.data) {
-          const errorMsg = 'Failed to get public URL for uploaded file';
+        const urlResult = supabase.storage.from('uploads').getPublicUrl(storagePath);
+        if (!urlResult || !urlResult.data || !urlResult.data.publicUrl) {
+          const errorMsg = 'Failed to create public URL for the uploaded file.';
           logger.error(errorMsg, { userId: user.id });
-          
-          // Update log with error
+
           await prisma.log.update({
             where: { id: logEntry.id },
-            data: {
-              error: errorMsg,
-              status: 500
-            }
+            data: { error: errorMsg, status: 500 },
           });
-          
-          throw new Error(errorMsg);
+
+          return res.status(500).json({
+            error: 'Your file was uploaded, but we could not create a public link. Please try again.',
+            reference: logEntry.id,
+          });
         }
 
-        logger.info(`File uploaded successfully to Supabase: ${fileName}`, { userId: user.id });
-        
-        // Update log with success
+        const uploadedPublicUrl = urlResult.data.publicUrl;
+
         await prisma.log.update({
           where: { id: logEntry.id },
           data: {
             response: {
-              url: urlResult.data.publicUrl,
-              fileName: fileName,
-              originalName: file.originalFilename,
-              size: file.size,
-              type: file.mimetype
+              url: uploadedPublicUrl,
+              fileName,
+              originalName: originalName,
+              size,
+              type: mimeType,
             },
-            status: 200
-          }
+            status: 200,
+          },
         });
-        
-        // Return the URL of the uploaded file
-        return res.status(200).json({ 
-          url: urlResult.data.publicUrl,
-          fileName: fileName,
-          originalName: file.originalFilename,
-          size: file.size,
-          type: file.mimetype
+
+        logger.info(`File uploaded successfully to Supabase: ${fileName}`, { userId: user.id });
+
+        return res.status(200).json({
+          url: uploadedPublicUrl,
+          fileName,
+          originalName: originalName,
+          size,
+          type: mimeType,
         });
-      } catch (supabaseError) {
-        // If direct Supabase upload fails, try to upload the file as a buffer
-        logger.warn('Supabase storage stream upload failed, trying buffer upload:', supabaseError, { userId: user.id });
-        
-        try {
-          // Read the file into a buffer
-          let fileBuffer;
+      } finally {
+        // Always attempt to clean up formidable temp file
+        if (filePath) {
           try {
-            fileBuffer = await fs.readFile(file.filepath);
-            logger.info(`Successfully read file into buffer, size: ${fileBuffer.length} bytes`, { userId: user.id });
-          } catch (readError) {
-            logger.error(`Error reading file into buffer: ${readError.message}`, readError, { userId: user.id });
-            
-            // Update log with error
-            await prisma.log.update({
-              where: { id: logEntry.id },
-              data: {
-                error: `Error reading file: ${readError.message}`,
-                status: 500
-              }
-            });
-            
-            throw readError;
-          }
-          
-          // Try to upload the buffer to Supabase Storage
-          const bufferUploadResult = await supabase.storage
-            .from('uploads')
-            .upload(`${user.id}/${fileName}`, fileBuffer, {
-              contentType: file.mimetype || 'application/octet-stream',
-              cacheControl: '3600',
-            });
-            
-          if (bufferUploadResult.error) {
-            logger.error('Supabase buffer upload error:', bufferUploadResult.error, { userId: user.id });
-            throw bufferUploadResult.error;
-          }
-          
-          // Get the public URL for the uploaded file
-          const urlResult = supabase.storage
-            .from('uploads')
-            .getPublicUrl(`${user.id}/${fileName}`);
-            
-          if (!urlResult || !urlResult.data) {
-            const errorMsg = 'Failed to get public URL for buffer-uploaded file';
-            logger.error(errorMsg, { userId: user.id });
-            
-            // Update log with error
-            await prisma.log.update({
-              where: { id: logEntry.id },
-              data: {
-                error: errorMsg,
-                status: 500
-              }
-            });
-            
-            throw new Error(errorMsg);
-          }
-          
-          logger.info(`File uploaded successfully to Supabase using buffer: ${fileName}`, { userId: user.id });
-          
-          // Update log with success
-          await prisma.log.update({
-            where: { id: logEntry.id },
-            data: {
-              response: {
-                url: urlResult.data.publicUrl,
-                fileName: fileName,
-                originalName: file.originalFilename,
-                size: file.size,
-                type: file.mimetype
-              },
-              status: 200
-            }
-          });
-          
-          // Return the URL of the uploaded file
-          return res.status(200).json({
-            url: urlResult.data.publicUrl,
-            fileName: fileName,
-            originalName: file.originalFilename,
-            size: file.size,
-            type: file.mimetype
-          });
-        } catch (bufferUploadError) {
-          logger.error('Supabase buffer upload failed:', bufferUploadError, { userId: user.id });
-          
-          // Create a short URL for the temporary file
-          try {
-            // Create a temporary directory for the user if it doesn't exist
-            const tempDir = path.join(os.tmpdir(), 'instacreate-temp', user.id);
-            await fs.mkdir(tempDir, { recursive: true });
-            logger.info(`Created temporary directory: ${tempDir}`, { userId: user.id });
-            
-            // Copy the file to the temporary directory
-            const tempFilePath = path.join(tempDir, fileName);
-            try {
-              await fs.copyFile(file.filepath, tempFilePath);
-              logger.info(`Copied file to temporary path: ${tempFilePath}`, { userId: user.id });
-              
-              // Verify the file was copied successfully
-              const stats = await fs.stat(tempFilePath);
-              logger.info(`Temporary file stats: size=${stats.size}, created=${stats.birthtime}`, { userId: user.id });
-            } catch (copyError) {
-              logger.error(`Error copying file to temporary location: ${copyError.message}`, copyError, { userId: user.id });
-              
-              // Update log with error
-              await prisma.log.update({
-                where: { id: logEntry.id },
-                data: {
-                  error: `Error copying file: ${copyError.message}`,
-                  status: 500
-                }
-              });
-              
-              throw copyError;
-            }
-            
-            // Create a short URL entry in database
-            const shortId = uuidv4().split('-')[0]; // Use first part of UUID for shorter ID
-            
-            // Store the mapping in database
-            try {
-              await prisma.urlMapping.create({
-                data: {
-                  short_id: shortId,
-                  original_path: tempFilePath,
-                  user_id: user.id,
-                  file_name: fileName,
-                  mime_type: file.mimetype || 'application/octet-stream'
-                }
-              });
-              
-              logger.info(`Created URL mapping in database with short_id: ${shortId}`, { userId: user.id });
-            } catch (dbError) {
-              logger.error(`Error creating URL mapping in database: ${dbError.message}`, dbError, { userId: user.id });
-              
-              // Update log with error
-              await prisma.log.update({
-                where: { id: logEntry.id },
-                data: {
-                  error: `Database error: ${dbError.message}`,
-                  status: 500
-                }
-              });
-              
-              throw dbError;
-            }
-            
-            // Create a short URL that will be resolved by our API
-            const shortUrl = `/api/image/${shortId}`;
-            
-            logger.info(`Created short URL for temporary file: ${shortUrl}`, { userId: user.id });
-            
-            // Update log with success
-            await prisma.log.update({
-              where: { id: logEntry.id },
-              data: {
-                response: {
-                  url: shortUrl,
-                  fileName: fileName,
-                  originalName: file.originalFilename,
-                  size: file.size,
-                  type: file.mimetype,
-                  isTemporary: true
-                },
-                status: 200
-              }
-            });
-            
-            // Return the short URL
-            return res.status(200).json({
-              url: shortUrl,
-              fileName: fileName,
-              originalName: file.originalFilename,
-              size: file.size,
-              type: file.mimetype,
-              isTemporary: true
-            });
-          } catch (shortUrlError) {
-            const errorMsg = `Failed to create short URL: ${shortUrlError.message}`;
-            logger.error(errorMsg, shortUrlError, { userId: user.id });
-            
-            // Update log with error
-            await prisma.log.update({
-              where: { id: logEntry.id },
-              data: {
-                error: errorMsg,
-                status: 500
-              }
-            });
-            
-            throw shortUrlError;
+            await fs.unlink(filePath);
+            logger.info(`Temp file cleaned up: ${filePath}`, { userId: user.id });
+          } catch (cleanupErr: any) {
+            // Do not fail the request on cleanup issues
+            logger.warn(`Failed to clean up temp file: ${cleanupErr?.message}`, cleanupErr, { userId: user.id });
           }
         }
       }
-    } catch (formError) {
-      const errorMsg = `Error processing form data: ${formError.message}`;
-      logger.error(errorMsg, formError, { userId: user.id });
-      
-      // Update log with error
-      await prisma.log.update({
-        where: { id: logEntry.id },
-        data: {
-          error: errorMsg,
-          status: 500
-        }
-      });
-      
-      return res.status(500).json({ error: 'Failed to process file upload. Please try again with a different file or contact support.' });
+    } catch (formError: any) {
+      const message = String(formError?.message || '');
+      const tooLarge =
+        formError?.httpCode === 413 ||
+        /maxFileSize/i.test(message) ||
+        /request entity too large/i.test(message);
+
+      const errorMsg = tooLarge
+        ? 'This file is too large. The maximum allowed size is 10MB.'
+        : 'Failed to process file upload. Please try again with a different file.';
+
+      logger.error(`Error processing form data: ${message}`, formError, { userId: user?.id });
+
+      // Best-effort log update for this request
+      try {
+        await prisma.log.update({
+          where: { id: logEntry.id },
+          data: {
+            error: `Form parse error: ${message}`,
+            status: tooLarge ? 413 : 500,
+          },
+        });
+      } catch {
+        // ignore
+      }
+
+      return res.status(tooLarge ? 413 : 500).json({ error: errorMsg });
     }
-  } catch (error) {
+  } catch (error: any) {
     const errorMsg = `Unexpected error in upload API: ${error.message}`;
     logger.error(errorMsg, error);
-    return res.status(500).json({ error: 'Internal server error. Please try again later or contact support.' });
+    return res.status(500).json({ error: 'Internal server error. Please try again later.' });
   }
 }
