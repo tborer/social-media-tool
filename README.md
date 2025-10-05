@@ -294,6 +294,73 @@ Check package.json for the complete list.
 - Multi-provider social posting refinements
 - Team/workspace support
 
+### TODO / Known Gaps and Inconsistencies
+
+This section consolidates current stubs, mocks, and architectural inconsistencies to guide next development steps. Items reference specific files/paths for quick navigation.
+
+- Instagram Search is mocked
+  - File: src/pages/api/instagram/search.ts
+  - Replace generateMockInstagramResults with a real integration (Instagram Graph API). Prefer Hashtag Search for Business accounts. Add token validation, caching, and rate limiting.
+
+- Bluesky and X (Twitter) posting are stubbed
+  - File: src/pages/api/social-media-accounts/[id]/post.ts
+  - Implement accountType=BLUESKY and accountType=X flows:
+    - OAuth and token storage
+    - Media upload endpoints + post creation
+    - Robust error handling and per-platform constraints (length, media types)
+
+- WordPress integration is a placeholder
+  - UI: src/pages/dashboard.tsx (WordPress tab)
+  - Add /api/wordpress/* routes, OAuth, media upload, and post publish. Support WordPress.com and self-hosted via REST API.
+
+- Scheduling mechanism not implemented
+  - DB supports ContentPost.scheduledFor and status=SCHEDULED but no runner exists.
+  - Add a scheduler (e.g., Vercel Cron -> /api/scheduler/run or Supabase schedule) that:
+    - Finds due posts and publishes
+    - Uses job locking/idempotency to avoid duplicates
+    - Observes per-account rate limits and exponential backoff on failures
+  - Wire up the frontend “Schedule” button (currently placeholder) to set scheduledFor and status transitions.
+
+- Image URL resolution inconsistency with new upload flow
+  - Files: 
+    - src/pages/api/social-media-accounts/[id]/post.ts (resolveImageUrl)
+    - src/pages/api/content-posts/index.ts (UrlMapping check)
+  - Align with /api/upload which already returns a public URL:
+    - Remove UrlMapping-based re-upload logic and any local filesystem assumptions
+    - Treat persisted imageUrl as final/public
+    - Clean up dead code and references
+
+- Legacy Instagram endpoints vs generic routes
+  - Files: src/pages/api/instagram-accounts/*
+  - Decide on deprecation or continued support in favor of the generic /api/social-media-accounts/*. Update README, UI, and codepaths to avoid duplication.
+
+- AI-generated image URL fallbacks
+  - File: src/pages/api/instagram/inspire.ts
+  - Replace hardcoded fallbacks with clearer error messaging or optional real image generation/stock search. Consider gating fallbacks behind a dev mode flag.
+
+- Draft persistence and autosave polish
+  - Files: src/pages/dashboard.tsx, src/components/AIContentGenerator.tsx
+  - Ensure autosave preserves caption, AI content, selected image, scheduledFor, and selected account across reloads. Strengthen toasts, retry logic, and user feedback for partial failures.
+
+- Data URL handling audit
+  - Ensure all paths use a single helper to convert data URLs to Files and upload via /api/upload before persisting. Enforce client-side size/type checks that mirror server allowlist and limits.
+
+- Security and secrets hardening
+  - Encrypt stored accessToken for social accounts; implement token refresh (e.g., IG long-lived tokens). Minimize scopes, validate tokens server-side, and redact secrets in logs.
+
+- Testing coverage
+  - Add unit tests for API routes, integration tests for uploads/posting, and e2e flows (draft create/edit/post) with Playwright or Cypress. Include scheduler tests and platform-specific mocks.
+
+- Rate limiting and abuse protection
+  - Add per-user and per-endpoint rate limits for AI and posting routes. Consider middleware backed by Upstash/Redis. Add request validation (Zod) and uniform error responses.
+
+- Logging improvements
+  - Standardize error codes/messages, add correlation IDs, and ensure sensitive fields are redacted. Consider log sampling to reduce noise while preserving debuggability.
+
+- Cleanup and migrations
+  - Remove remaining references to UrlMapping. After code is clean, drop the table in a follow-up Prisma migration.
+  - Consolidate image upload paths to /api/upload; deprecate /api/social-media-accounts/[id]/images and /api/instagram-accounts/[id]/images if redundant.
+
 ### License
 
 This repository is provided as a Codev template-derived application. Review your organization’s licensing and compliance needs before commercial use.
