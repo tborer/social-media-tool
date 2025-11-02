@@ -1,8 +1,9 @@
-import React, { createContext, useState, ReactNode, useContext, useEffect } from 'react';
+import React, { createContext, useState, ReactNode, useEffect } from 'react';
 import { createClient } from '@/util/supabase/component';
-import { User, Provider } from '@supabase/supabase-js';
+import { User } from '@supabase/supabase-js';
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from 'next/router';
+import prisma from '@/lib/prisma';
 
 interface AuthContextType {
   user: User | null;
@@ -35,101 +36,49 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const supabase = createClient();
   const { toast } = useToast();
 
-  React.useEffect(() => {
-    const fetchSession = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      setInitializing(false);
-    };
-
-    fetchSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // The setTimeout is necessary to allow Supabase functions to trigger inside onAuthStateChange
-      setTimeout(async () => {
-        setUser(session?.user ?? null);
-        setInitializing(false);
-      }, 0);
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  const createUser = async (user: User) => {
+  // Sync a Supabase user to the Prisma users table (no credentials stored)
+  const createUser = async (u: User) => {
     try {
-      const { data, error } = await supabase
-        .from('User')
-        .select('id')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-      if (!data) {
-        const { error: insertError } = await supabase
-          .from('User')
-          .insert({
-            id: user.id,
-            email: user.email,
-          });
-        if (insertError) {
-          throw insertError;
-        }
-      }
+      // Upsert Prisma user using Supabase user id as primary key
+      await prisma.user.upsert({
+        where: { id: u.id },
+        update: {
+          email: u.email || undefined,
+          updatedAt: new Date(),
+        },
+        create: {
+          id: u.id,
+          email: u.email || undefined,
+          createdAt: new Date(),
+        },
+      });
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to create user profile",
-      });
-    }
-  };
-
-  const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (!error && data.user) {
-      await createUser(data.user);
-    }
-    
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
-      throw error;
-    } else {
-      toast({
-        title: "Success",
-        description: "You have successfully signed in",
-      });
+      console.error('createUser upsert error:', error);
     }
   };
 
   const signUp = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password
-    });
-
-    if (data.user) {
-      await createUser(data.user);
-    }
-
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
       throw error;
-    } else {
-      toast({
-        title: "Success",
-        description: "Sign up successful! Please login to continue.",
-      });
+    }
+    if (data?.user) {
+      await createUser(data.user);
+      setUser(data.user);
+    }
+    toast({ title: 'Success', description: 'Sign up successful! Check your email if verification is required.' });
+  };
+
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      throw error;
+    }
+    if (data?.user) {
+      await createUser(data.user);
+      setUser(data.user);
     }
   };
 
@@ -145,34 +94,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await createUser(data.user);
     }
     if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
       throw error;
     } else {
-      toast({
-        title: "Success",
-        description: "Check your email for the login link",
-      });
+      toast({ title: 'Success', description: 'Check your email for the login link' });
     }
   };
 
   const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google' as Provider,
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`
-      }
-    });
-    
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+      if (error) throw error;
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
       throw error;
     }
   };
@@ -180,55 +114,60 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
-    } else {
-      toast({
-        title: "Success",
-        description: "You have successfully signed out",
-      });
-      router.push('/');
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      throw error;
     }
+    setUser(null);
+    router.push('/login');
   };
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
     if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
       throw error;
-    } else {
-      toast({
-        title: "Success",
-        description: "Check your email for the password reset link",
-      });
     }
+    toast({ title: 'Success', description: 'Password reset email sent.' });
+    return data;
   };
 
-  return (
-    <AuthContext.Provider value={{
-      user,
-      createUser,
-      signIn,
-      signUp,
-      signInWithMagicLink,
-      signInWithGoogle,
-      signOut,
-      resetPassword,
-      initializing,
+  // Initialize auth state on mount
+  useEffect(() => {
+    let mounted = true;
+    const getUser = async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        if (!mounted) return;
+        if (data?.user) {
+          setUser(data.user);
+          await createUser(data.user);
+        }
+      } catch (error) {
+        console.error('auth init error', error);
+      } finally {
+        if (mounted) setInitializing(false);
+      }
+    };
+    getUser();
 
-    }}>
+    const { subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        await createUser(session.user);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, createUser, signIn, signUp, signInWithMagicLink, signInWithGoogle, signOut, resetPassword, initializing }}>
       {children}
     </AuthContext.Provider>
   );
 };
-
-export const useAuth = () => useContext(AuthContext);
