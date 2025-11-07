@@ -274,12 +274,9 @@ export default function Dashboard() {
       });
       return;
     }
-    
+
     // Show a loading toast for the operation
-    const loadingToast = toast({
-      title: saveAsDraft ? "Saving draft" : "Creating post",
-      description: "Please wait...",
-    });
+    const loadingToastId = Date.now().toString();
 
     try {
       // Handle file upload if a file was selected
@@ -451,14 +448,14 @@ export default function Dashboard() {
         // Include scheduledFor if it's set
         ...(newPost.scheduledFor ? { scheduledFor: newPost.scheduledFor } : {}),
         // Only include socialMediaAccountId if it's not empty
-        ...(newPost.socialMediaAccountId && newPost.socialMediaAccountId.trim() !== '' 
-          ? { socialMediaAccountId: newPost.socialMediaAccountId } 
+        ...(newPost.socialMediaAccountId && newPost.socialMediaAccountId.trim() !== ''
+          ? { socialMediaAccountId: newPost.socialMediaAccountId }
           : {})
       };
 
       // Show a loading toast for creating the post
-      const loadingToast = toast({
-        title: saveAsDraft ? "Saving draft" : "Creating post",
+      toast({
+        title: saveAsDraft ? "Saving draft..." : "Creating post...",
         description: "Please wait...",
       });
 
@@ -987,18 +984,18 @@ export default function Dashboard() {
                           </div>
                           
                           <div className="grid gap-2">
-                            <Label htmlFor="scheduledFor">Schedule Post</Label>
+                            <Label htmlFor="scheduledFor">Schedule Post (Optional)</Label>
                             <div className="flex flex-col space-y-2">
-                              <div className="grid gap-2">
+                              <div className="flex gap-2">
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <Button
                                       variant="outline"
-                                      className="w-full justify-start text-left font-normal"
+                                      className="flex-1 justify-start text-left font-normal"
                                     >
                                       <Calendar className="mr-2 h-4 w-4" />
-                                      {newPost.scheduledFor ? 
-                                        format(new Date(newPost.scheduledFor), 'PPP') : 
+                                      {newPost.scheduledFor ?
+                                        format(new Date(newPost.scheduledFor), 'PPP') :
                                         "Pick a date"}
                                     </Button>
                                   </PopoverTrigger>
@@ -1008,10 +1005,15 @@ export default function Dashboard() {
                                       selected={newPost.scheduledFor ? new Date(newPost.scheduledFor) : undefined}
                                       onSelect={(date) => {
                                         if (date) {
-                                          // Preserve the time if already set
-                                          const currentDate = newPost.scheduledFor ? new Date(newPost.scheduledFor) : new Date();
-                                          date.setHours(currentDate.getHours());
-                                          date.setMinutes(currentDate.getMinutes());
+                                          // Preserve the time if already set, otherwise set to 9 AM
+                                          if (newPost.scheduledFor) {
+                                            const currentDate = new Date(newPost.scheduledFor);
+                                            date.setHours(currentDate.getHours());
+                                            date.setMinutes(currentDate.getMinutes());
+                                          } else {
+                                            date.setHours(9);
+                                            date.setMinutes(0);
+                                          }
                                           setNewPost({...newPost, scheduledFor: date.toISOString()});
                                         }
                                       }}
@@ -1019,18 +1021,31 @@ export default function Dashboard() {
                                     />
                                   </PopoverContent>
                                 </Popover>
+                                {newPost.scheduledFor && (
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => setNewPost({...newPost, scheduledFor: null})}
+                                    title="Clear schedule"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
                               </div>
                               <div className="flex space-x-2">
                                 <select
                                   className="flex h-10 w-20 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                  value={newPost.scheduledFor ? new Date(newPost.scheduledFor).getHours() : new Date().getHours()}
+                                  value={newPost.scheduledFor ? new Date(newPost.scheduledFor).getHours() : ''}
+                                  disabled={!newPost.scheduledFor}
                                   onChange={(e) => {
+                                    if (!newPost.scheduledFor) return;
                                     const hours = parseInt(e.target.value);
-                                    const date = newPost.scheduledFor ? new Date(newPost.scheduledFor) : new Date();
+                                    const date = new Date(newPost.scheduledFor);
                                     date.setHours(hours);
                                     setNewPost({...newPost, scheduledFor: date.toISOString()});
                                   }}
                                 >
+                                  <option value="">HH</option>
                                   {Array.from({ length: 24 }, (_, i) => (
                                     <option key={i} value={i}>
                                       {i.toString().padStart(2, '0')}
@@ -1040,14 +1055,17 @@ export default function Dashboard() {
                                 <span className="flex items-center">:</span>
                                 <select
                                   className="flex h-10 w-20 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                  value={newPost.scheduledFor ? new Date(newPost.scheduledFor).getMinutes() : new Date().getMinutes()}
+                                  value={newPost.scheduledFor ? new Date(newPost.scheduledFor).getMinutes() : ''}
+                                  disabled={!newPost.scheduledFor}
                                   onChange={(e) => {
+                                    if (!newPost.scheduledFor) return;
                                     const minutes = parseInt(e.target.value);
-                                    const date = newPost.scheduledFor ? new Date(newPost.scheduledFor) : new Date();
+                                    const date = new Date(newPost.scheduledFor);
                                     date.setMinutes(minutes);
                                     setNewPost({...newPost, scheduledFor: date.toISOString()});
                                   }}
                                 >
+                                  <option value="">MM</option>
                                   {Array.from({ length: 60 }, (_, i) => (
                                     <option key={i} value={i}>
                                       {i.toString().padStart(2, '0')}

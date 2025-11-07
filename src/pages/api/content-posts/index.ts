@@ -204,8 +204,8 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       caption,
       imageUrl,
       userId,
-      // Use provided status or default to DRAFT
-      status: status || (scheduledFor ? 'SCHEDULED' : 'DRAFT'),
+      // Respect explicitly provided status, otherwise default based on scheduledFor
+      status: status !== undefined ? status : (scheduledFor ? 'SCHEDULED' : 'DRAFT'),
     };
     
     // Add contentType if provided
@@ -249,9 +249,9 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
         postData.socialMediaAccountId = socialMediaAccountId;
         logger.info(`Verified social media account: ${account.username}`, { userId });
       } catch (accountError) {
-        const errorMsg = `Error verifying social media account: ${accountError.message}`;
+        const errorMsg = `Error verifying social media account: ${accountError instanceof Error ? accountError.message : 'Unknown error'}`;
         logger.error(errorMsg, accountError, { userId });
-        
+
         // Update log with error
         await prisma.log.update({
           where: { id: logEntry.id },
@@ -260,7 +260,7 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
             status: 500
           }
         });
-        
+
         return res.status(500).json({ error: 'Failed to verify social media account' });
       }
     }
@@ -288,9 +288,9 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       
       return res.status(201).json(newPost);
     } catch (createError) {
-      const errorMsg = `Error creating content post in database: ${createError.message}`;
+      const errorMsg = `Error creating content post in database: ${createError instanceof Error ? createError.message : 'Unknown error'}`;
       logger.error(errorMsg, createError, { userId });
-      
+
       // Update log with error
       await prisma.log.update({
         where: { id: logEntry.id },
@@ -299,13 +299,13 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
           status: 500
         }
       });
-      
-      return res.status(500).json({ 
-        error: 'Failed to create content post. Please try again or contact support.' 
+
+      return res.status(500).json({
+        error: 'Failed to create content post. Please try again or contact support.'
       });
     }
   } catch (error) {
-    const errorMsg = `Unexpected error creating content post: ${error.message}`;
+    const errorMsg = `Unexpected error creating content post: ${error instanceof Error ? error.message : 'Unknown error'}`;
     logger.error(errorMsg, error, { userId });
     
     // Update log with error
