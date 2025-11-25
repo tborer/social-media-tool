@@ -1665,6 +1665,322 @@ export default function Dashboard() {
                     </Card>
                   )}
                 </TabsContent>
+
+                <TabsContent value="scheduled">
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-64">
+                      <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : posts.filter(post => post.status === 'SCHEDULED').length > 0 ? (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {posts.filter(post => post.status === 'SCHEDULED').map((post) => {
+                        const scheduledDate = post.scheduledFor ? new Date(post.scheduledFor) : null;
+                        const now = new Date();
+                        const timeUntil = scheduledDate ? scheduledDate.getTime() - now.getTime() : 0;
+                        const hoursUntil = Math.floor(timeUntil / (1000 * 60 * 60));
+                        const minutesUntil = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60));
+                        const isPastDue = timeUntil < 0;
+
+                        return (
+                        <Card key={post.id}>
+                          <CardHeader>
+                            <CardTitle className="flex items-center">
+                              <div className="flex-1 truncate">{post.caption.substring(0, 30)}...</div>
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                  post.contentType === 'IMAGE' ? 'bg-purple-100 text-purple-800' :
+                                  post.contentType === 'VIDEO' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-green-100 text-green-800'
+                                }`}>
+                                  {post.contentType.replace('_', ' ')}
+                                </span>
+                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">
+                                  SCHEDULED
+                                </span>
+                              </div>
+                            </CardTitle>
+                            {scheduledDate && (
+                              <CardDescription>
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-4 w-4" />
+                                  {scheduledDate.toLocaleString()}
+                                </div>
+                                {isPastDue ? (
+                                  <div className="text-orange-600 text-sm mt-1">
+                                    Post is due - will publish shortly
+                                  </div>
+                                ) : (
+                                  <div className="text-blue-600 text-sm mt-1">
+                                    {hoursUntil > 0 && `${hoursUntil}h `}
+                                    {minutesUntil}m until posting
+                                  </div>
+                                )}
+                              </CardDescription>
+                            )}
+                          </CardHeader>
+                          <CardContent>
+                            {post.imageUrl && (
+                              <div className="aspect-square relative mb-4 rounded-md overflow-hidden">
+                                <img
+                                  src={post.imageUrl}
+                                  alt="Post image"
+                                  className="object-cover w-full h-full"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-muted');
+                                    const icon = document.createElement('div');
+                                    icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>';
+                                    e.currentTarget.parentElement?.appendChild(icon);
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <p className="text-sm text-muted-foreground line-clamp-3">{post.caption}</p>
+                          </CardContent>
+                          <CardFooter className="flex flex-col gap-2">
+                            <div className="flex gap-2 w-full">
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="flex-1">
+                                    Cancel Schedule
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Cancel Scheduled Post</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This will cancel the scheduled post and move it back to drafts. You can reschedule it later.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Keep Schedule</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={async () => {
+                                        try {
+                                          const response = await fetch(`/api/content-posts/${post.id}`, {
+                                            method: 'PUT',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({
+                                              status: 'DRAFT',
+                                              scheduledFor: null
+                                            }),
+                                            credentials: 'include',
+                                          });
+
+                                          if (!response.ok) {
+                                            throw new Error('Failed to cancel schedule');
+                                          }
+
+                                          setPosts(posts.map(p =>
+                                            p.id === post.id
+                                              ? {...p, status: 'DRAFT', scheduledFor: undefined}
+                                              : p
+                                          ));
+
+                                          toast({
+                                            title: "Success",
+                                            description: "Scheduled post cancelled and moved to drafts",
+                                          });
+                                        } catch (error) {
+                                          toast({
+                                            variant: "destructive",
+                                            title: "Error",
+                                            description: error instanceof Error ? error.message : "Failed to cancel schedule",
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      Cancel Schedule
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" size="sm" className="flex-1">
+                                    <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Post</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This action cannot be undone. This will permanently delete the scheduled post.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={async () => {
+                                        try {
+                                          const response = await fetch(`/api/content-posts/${post.id}`, {
+                                            method: 'DELETE',
+                                            credentials: 'include',
+                                          });
+
+                                          if (!response.ok) {
+                                            throw new Error('Failed to delete post');
+                                          }
+
+                                          setPosts(posts.filter(p => p.id !== post.id));
+
+                                          toast({
+                                            title: "Success",
+                                            description: "Post deleted successfully",
+                                          });
+                                        } catch (error) {
+                                          toast({
+                                            variant: "destructive",
+                                            title: "Error",
+                                            description: error instanceof Error ? error.message : "Failed to delete post",
+                                          });
+                                        }
+                                      }}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </CardFooter>
+                        </Card>
+                      )})}
+                    </div>
+                  ) : (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>No Scheduled Posts</CardTitle>
+                        <CardDescription>
+                          Schedule posts to automatically publish them at a specific time.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button onClick={() => setIsCreatingPost(true)}>
+                          <Plus className="mr-2 h-4 w-4" /> Create New Post
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="published">
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-64">
+                      <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : posts.filter(post => post.status === 'PUBLISHED').length > 0 ? (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {posts.filter(post => post.status === 'PUBLISHED').map((post) => (
+                        <Card key={post.id}>
+                          <CardHeader>
+                            <CardTitle className="flex items-center">
+                              <div className="flex-1 truncate">{post.caption.substring(0, 30)}...</div>
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                  post.contentType === 'IMAGE' ? 'bg-purple-100 text-purple-800' :
+                                  post.contentType === 'VIDEO' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-green-100 text-green-800'
+                                }`}>
+                                  {post.contentType.replace('_', ' ')}
+                                </span>
+                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-800">
+                                  PUBLISHED
+                                </span>
+                              </div>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {post.imageUrl && (
+                              <div className="aspect-square relative mb-4 rounded-md overflow-hidden">
+                                <img
+                                  src={post.imageUrl}
+                                  alt="Post image"
+                                  className="object-cover w-full h-full"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-muted');
+                                    const icon = document.createElement('div');
+                                    icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>';
+                                    e.currentTarget.parentElement?.appendChild(icon);
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <p className="text-sm text-muted-foreground line-clamp-3">{post.caption}</p>
+                          </CardContent>
+                          <CardFooter>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm">
+                                  <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Post</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will delete the post record from your dashboard. It will NOT delete the post from the social media platform.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={async () => {
+                                      try {
+                                        const response = await fetch(`/api/content-posts/${post.id}`, {
+                                          method: 'DELETE',
+                                          credentials: 'include',
+                                        });
+
+                                        if (!response.ok) {
+                                          throw new Error('Failed to delete post');
+                                        }
+
+                                        setPosts(posts.filter(p => p.id !== post.id));
+
+                                        toast({
+                                          title: "Success",
+                                          description: "Post deleted from dashboard",
+                                        });
+                                      } catch (error) {
+                                        toast({
+                                          variant: "destructive",
+                                          title: "Error",
+                                          description: error instanceof Error ? error.message : "Failed to delete post",
+                                        });
+                                      }
+                                    }}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </CardFooter>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>No Published Posts</CardTitle>
+                        <CardDescription>
+                          Posts you publish will appear here.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button onClick={() => setIsCreatingPost(true)}>
+                          <Plus className="mr-2 h-4 w-4" /> Create New Post
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
               </Tabs>
             </TabsContent>
             
