@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
 import { logger } from '@/lib/logger';
+import { getAccessToken } from '@/lib/instagram-token-manager';
 
 // Helper function to resolve image URL to a publicly accessible URL
 async function resolveImageUrl(imageUrl: string, supabase: any, userId: string) {
@@ -253,14 +254,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!post.imageUrl) {
       return res.status(400).json({ error: 'Post must have an image URL' });
     }
-    
+
+    // Get and decrypt access token (with automatic refresh if needed)
+    const accessToken = await getAccessToken(account.id, user.id);
+
     let postResult = null;
-    
+
     // Post to the appropriate social media platform
     if (account.accountType === 'INSTAGRAM') {
       // Post to Instagram using the two-step process
       postResult = await postToInstagram(
-        account.accessToken,
+        accessToken,
         post.imageUrl,
         post.caption,
         supabase,
@@ -269,7 +273,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else if (account.accountType === 'BLUESKY') {
       // Post to Bluesky
       postResult = await postToBluesky(
-        account.accessToken,
+        accessToken,
         post.imageUrl,
         post.caption,
         supabase,
@@ -278,15 +282,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else if (account.accountType === 'X') {
       // Post to X (Twitter)
       postResult = await postToX(
-        account.accessToken,
+        accessToken,
         post.imageUrl,
         post.caption,
         supabase,
         user.id
       );
     } else {
-      return res.status(400).json({ 
-        error: `Unknown account type: ${account.accountType}` 
+      return res.status(400).json({
+        error: `Unknown account type: ${account.accountType}`
       });
     }
     

@@ -683,7 +683,7 @@ export default function Dashboard() {
                     <DialogHeader>
                       <DialogTitle>Add Social Media Account</DialogTitle>
                       <DialogDescription>
-                        Enter your social media credentials to connect your account.
+                        Connect your social media account using OAuth for secure authentication.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -700,6 +700,42 @@ export default function Dashboard() {
                           <option value="X">X</option>
                         </select>
                       </div>
+
+                      {newAccount.accountType === "INSTAGRAM" && (
+                        <div className="grid gap-3 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <Instagram className="h-5 w-5 text-pink-500" />
+                            <span className="font-medium">Instagram OAuth</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Connect your Instagram account securely using OAuth. Your access token will be encrypted and automatically refreshed.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              window.location.href = '/api/auth/instagram/connect?returnUrl=/dashboard';
+                            }}
+                            className="w-full"
+                          >
+                            <Instagram className="h-4 w-4 mr-2" />
+                            Connect with Instagram
+                          </Button>
+                          <p className="text-xs text-muted-foreground text-center">
+                            Secure OAuth 2.0 authentication
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                          <span className="w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                          <span className="bg-background px-2 text-muted-foreground">
+                            Or add manually
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="grid gap-2">
                         <Label htmlFor="username">Username</Label>
                         <Input
@@ -719,13 +755,13 @@ export default function Dashboard() {
                           placeholder="Your API access token"
                         />
                         <p className="text-sm text-muted-foreground">
-                          You can get your access token from the respective platform's developer portal.
+                          Manual token entry (not recommended for Instagram). Use OAuth above for better security.
                         </p>
                       </div>
                     </div>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setIsAddingAccount(false)}>Cancel</Button>
-                      <Button onClick={handleAddAccount}>Add Account</Button>
+                      <Button onClick={handleAddAccount}>Add Manually</Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>

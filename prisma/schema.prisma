@@ -21,15 +21,17 @@ model User {
 }
 
 model SocialMediaAccount {
-  id           String        @id @default(uuid())
-  username     String
-  accessToken  String
-  accountType  AccountType   @default(INSTAGRAM)
-  userId       String        @db.Uuid
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  contentPosts ContentPost[]
+  id             String        @id @default(uuid())
+  username       String
+  accessToken    String
+  isEncrypted    Boolean       @default(false)
+  tokenExpiresAt DateTime?
+  accountType    AccountType   @default(INSTAGRAM)
+  userId         String        @db.Uuid
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  contentPosts   ContentPost[]
 
   @@unique([userId, username, accountType])
 }

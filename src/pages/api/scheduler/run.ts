@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { JobLock } from '@/lib/job-lock';
 import { createClient } from '@supabase/supabase-js';
+import { getAccessToken } from '@/lib/instagram-token-manager';
 
 const SCHEDULER_LOCK_NAME = 'content_post_scheduler';
 const MAX_RETRY_ATTEMPTS = 3;
@@ -326,11 +327,14 @@ async function processScheduledPosts(): Promise<{
         // Attempt to publish the post
         logger.info(`Publishing post ${post.id} to ${account.accountType} account ${account.username}`, { userId: post.userId });
 
+        // Get and decrypt access token (with automatic refresh if needed)
+        const accessToken = await getAccessToken(account.id, post.userId);
+
         let publishResult = null;
 
         if (account.accountType === 'INSTAGRAM') {
           publishResult = await postToInstagram(
-            account.accessToken,
+            accessToken,
             post.imageUrl,
             post.caption,
             post.userId
