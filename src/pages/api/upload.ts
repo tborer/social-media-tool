@@ -15,7 +15,19 @@ const ALLOWED_IMAGE_TYPES = new Set([
   'image/avif',
 ]);
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_VIDEO_TYPES = new Set([
+  'video/mp4',
+  'video/quicktime',
+  'video/x-m4v',
+]);
+
+const ALLOWED_FILE_TYPES = new Set([
+  ...Array.from(ALLOWED_IMAGE_TYPES),
+  ...Array.from(ALLOWED_VIDEO_TYPES),
+]);
+
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB for images
+const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024; // 100MB for videos
 
 // Disable the default body parser to handle multipart/form-data
 export const config = {
@@ -75,7 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Parse incoming multipart form
     const form = new IncomingForm({
       keepExtensions: true,
-      maxFileSize: 10 * 1024 * 1024, // 10MB
+      maxFileSize: 100 * 1024 * 1024, // 100MB (for videos)
       multiples: false,
     });
 
@@ -115,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         Object.values(files || {})[0];
 
       if (!uploaded) {
-        const errorMsg = 'No file was uploaded. Please attach an image and try again.';
+        const errorMsg = 'No file was uploaded. Please attach an image or video and try again.';
         logger.error(errorMsg, { userId: user.id });
 
         await prisma.log.update({
@@ -150,9 +162,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
 
+      // Determine if file is image or video
+      const isImage = ALLOWED_IMAGE_TYPES.has(mimeType);
+      const isVideo = ALLOWED_VIDEO_TYPES.has(mimeType);
+
       // Validate content type
-      if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
-        const errorMsg = 'Unsupported file type. Please upload an image (JPEG, PNG, WebP, GIF, or AVIF).';
+      if (!ALLOWED_FILE_TYPES.has(mimeType)) {
+        const errorMsg = 'Unsupported file type. Please upload an image (JPEG, PNG, WebP, GIF, AVIF) or video (MP4, MOV).';
         logger.error(errorMsg, { userId: user.id, mimeType });
 
         await prisma.log.update({
@@ -165,7 +181,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Validate size (defensive)
       if (!size || size <= 0) {
-        const errorMsg = 'The uploaded file is empty. Please try another image.';
+        const errorMsg = 'The uploaded file is empty. Please try another file.';
         logger.error(errorMsg, { userId: user.id });
 
         await prisma.log.update({
@@ -176,8 +192,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: errorMsg });
       }
 
-      if (size > MAX_FILE_SIZE_BYTES) {
-        const errorMsg = 'This file is too large. The maximum allowed size is 10MB.';
+      // Validate size based on file type
+      const maxSize = isVideo ? MAX_VIDEO_SIZE_BYTES : MAX_IMAGE_SIZE_BYTES;
+      const maxSizeLabel = isVideo ? '100MB' : '10MB';
+
+      if (size > maxSize) {
+        const errorMsg = `This file is too large. The maximum allowed size for ${isVideo ? 'videos' : 'images'} is ${maxSizeLabel}.`;
         logger.error(errorMsg, { userId: user.id, size });
 
         await prisma.log.update({
@@ -286,7 +306,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         /request entity too large/i.test(message);
 
       const errorMsg = tooLarge
-        ? 'This file is too large. The maximum allowed size is 10MB.'
+        ? 'This file is too large. The maximum allowed size is 10MB for images and 100MB for videos.'
         : 'Failed to process file upload. Please try again with a different file.';
 
       logger.error(`Error processing form data: ${message}`, formError, { userId: user?.id });
