@@ -123,14 +123,44 @@ async function postToX(accessToken: string, imageUrl: string, caption: string, s
   }
 }
 
-// Helper function to post to Instagram
-async function postToInstagram(accessToken: string, imageUrl: string, caption: string, supabase: any, userId: string) {
+// Helper function to post to Instagram (images and videos)
+async function postToInstagram(
+  accessToken: string,
+  mediaUrl: string,
+  caption: string,
+  supabase: any,
+  userId: string,
+  contentType: string = 'IMAGE',
+  videoType?: string
+) {
   try {
-    // Resolve the image URL to a publicly accessible URL
-    const resolvedImageUrl = await resolveImageUrl(imageUrl, supabase, userId);
-    
-    logger.info(`Posting to Instagram with resolved image URL: ${resolvedImageUrl}`, { userId });
-    
+    // Resolve the media URL to a publicly accessible URL
+    const resolvedMediaUrl = await resolveImageUrl(mediaUrl, supabase, userId);
+
+    logger.info(`Posting ${contentType} to Instagram with resolved URL: ${resolvedMediaUrl}`, { userId });
+
+    // Prepare container creation payload based on content type
+    let containerPayload: any = {
+      caption: caption
+    };
+
+    if (contentType === 'VIDEO') {
+      // For videos, use video_url and media_type
+      containerPayload.video_url = resolvedMediaUrl;
+
+      // Determine media type: REELS for vertical videos, VIDEO for feed videos
+      if (videoType === 'REELS') {
+        containerPayload.media_type = 'REELS';
+        logger.info('Creating Instagram Reels container', { userId });
+      } else {
+        containerPayload.media_type = 'VIDEO';
+        logger.info('Creating Instagram Feed video container', { userId });
+      }
+    } else {
+      // For images, use image_url (default behavior)
+      containerPayload.image_url = resolvedMediaUrl;
+    }
+
     // Step 1: Create a media container
     const createContainerResponse = await fetch(
       `https://graph.instagram.com/v22.0/me/media`,
@@ -140,10 +170,7 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`
         },
-        body: JSON.stringify({
-          image_url: resolvedImageUrl,
-          caption: caption
-        })
+        body: JSON.stringify(containerPayload)
       }
     );
 
@@ -162,7 +189,53 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
 
     logger.info(`Instagram media container created: ${containerId}`, { userId });
 
-    // Step 2: Publish the container
+    // Step 2: For videos, wait for processing to complete before publishing
+    if (contentType === 'VIDEO') {
+      logger.info('Video container created, waiting for Instagram to process video...', { userId });
+
+      // Poll the container status until it's ready (max 30 attempts, 2 seconds each = 1 minute)
+      let attempts = 0;
+      const maxAttempts = 30;
+      let isReady = false;
+
+      while (attempts < maxAttempts && !isReady) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+
+        const statusResponse = await fetch(
+          `https://graph.instagram.com/v22.0/${containerId}?fields=status_code`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`
+            }
+          }
+        );
+
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          const statusCode = statusData.status_code;
+
+          logger.info(`Video processing status: ${statusCode}`, { userId, attempt: attempts + 1 });
+
+          if (statusCode === 'FINISHED') {
+            isReady = true;
+          } else if (statusCode === 'ERROR') {
+            throw new Error('Instagram video processing failed');
+          }
+          // status_code can be: IN_PROGRESS, FINISHED, ERROR
+        }
+
+        attempts++;
+      }
+
+      if (!isReady) {
+        throw new Error('Video processing timeout - Instagram is taking too long to process the video');
+      }
+
+      logger.info('Video processing complete, ready to publish', { userId });
+    }
+
+    // Step 3: Publish the container
     const publishResponse = await fetch(
       `https://graph.instagram.com/v22.0/me/media_publish`,
       {
@@ -184,12 +257,12 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
     }
 
     const publishData = await publishResponse.json();
-    logger.info(`Instagram media published successfully: ${publishData.id}`, { userId });
-    
+    logger.info(`Instagram ${contentType} published successfully: ${publishData.id}`, { userId });
+
     return {
       success: true,
       mediaId: publishData.id,
-      resolvedImageUrl
+      resolvedMediaUrl
     };
   } catch (error) {
     logger.error('Instagram posting error:', error, { userId });
@@ -268,7 +341,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         post.imageUrl,
         post.caption,
         supabase,
-        user.id
+        user.id,
+        post.contentType,
+        post.videoType || undefined
       );
     } else if (account.accountType === 'BLUESKY') {
       // Post to Bluesky

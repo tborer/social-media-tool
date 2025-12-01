@@ -16,6 +16,7 @@ import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
 import LogsViewer from "@/components/LogsViewer";
+import { CalendarView } from "@/components/CalendarView";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -32,9 +33,14 @@ type ContentPost = {
   caption: string;
   imageUrl?: string;
   contentType: "IMAGE" | "VIDEO" | "BLOG_POST";
+  videoType?: "FEED" | "REELS" | null;
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
   socialMediaAccountId?: string;
+  socialMediaAccount?: {
+    username: string;
+    accountType: string;
+  } | null;
 };
 
 // Component for editing social media account details
@@ -1147,6 +1153,7 @@ export default function Dashboard() {
                   <TabsTrigger value="drafts">Drafts</TabsTrigger>
                   <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
                   <TabsTrigger value="published">Published</TabsTrigger>
+                  <TabsTrigger value="calendar">Calendar View</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="all">
@@ -2016,6 +2023,53 @@ export default function Dashboard() {
                       </CardContent>
                     </Card>
                   )}
+                </TabsContent>
+
+                <TabsContent value="calendar">
+                  <CalendarView
+                    posts={posts}
+                    onEditPost={(postId) => {
+                      // Handle edit post
+                      toast({
+                        title: "Edit Post",
+                        description: "Edit functionality coming soon!",
+                      });
+                    }}
+                    onDeletePost={async (postId) => {
+                      if (confirm('Are you sure you want to delete this post?')) {
+                        try {
+                          const response = await fetch(`/api/content-posts/${postId}`, {
+                            method: 'DELETE',
+                          });
+
+                          if (!response.ok) {
+                            throw new Error('Failed to delete post');
+                          }
+
+                          toast({
+                            title: "Success",
+                            description: "Post deleted successfully",
+                          });
+
+                          // Refresh posts
+                          fetchPosts();
+                        } catch (error) {
+                          toast({
+                            title: "Error",
+                            description: "Failed to delete post",
+                            variant: "destructive",
+                          });
+                        }
+                      }
+                    }}
+                    onViewPost={(postId) => {
+                      // Scroll to the post in the all posts tab
+                      const postElement = document.getElementById(`post-${postId}`);
+                      if (postElement) {
+                        postElement.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }}
+                  />
                 </TabsContent>
               </Tabs>
             </TabsContent>

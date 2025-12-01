@@ -47,6 +47,7 @@ model ContentPost {
   caption              String
   imageUrl             String?
   contentType          ContentType        @default(IMAGE)
+  videoType            VideoType?         // Type of video: FEED or REELS (for Instagram)
   status               PostStatus         @default(DRAFT)
   scheduledFor         DateTime?
   retryCount           Int                @default(0)
@@ -71,6 +72,11 @@ enum ContentType {
   IMAGE
   VIDEO
   BLOG_POST
+}
+
+enum VideoType {
+  FEED
+  REELS
 }
 
 enum LogType {

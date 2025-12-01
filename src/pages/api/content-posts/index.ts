@@ -40,6 +40,7 @@ async function getContentPosts(req: NextApiRequest, res: NextApiResponse, userId
           select: {
             id: true,
             username: true,
+            accountType: true,
           },
         },
       },

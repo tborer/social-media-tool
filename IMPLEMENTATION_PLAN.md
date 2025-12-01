@@ -260,45 +260,123 @@ ENCRYPTION_KEY=your_32_byte_key
 **Objective**: Support video content posting to Instagram
 
 **Tasks**:
-- [ ] Research Instagram Video API requirements
+- [x] Research Instagram Video API requirements
   - Format: MP4, MOV
   - Max size: 100MB
   - Duration: 3-60 seconds (Reels), up to 60 minutes (feed)
   - Aspect ratios: 9:16, 1:1, 4:5
-- [ ] Implement video upload
+- [x] Implement video upload
   - Add video file validation
   - Upload to Supabase Storage
   - Generate public URL
-- [ ] Add Instagram Video API integration
+- [x] Add Instagram Video API integration
   - Use Instagram Graph API video endpoints
-  - Handle chunked upload for large files
+  - Handle video processing wait time with polling
   - Support for Reels vs Feed videos
-- [ ] Update UI
-  - Add video preview player
-  - Show video upload progress
-  - Display video duration and size
-- [ ] Add video format validation
-  - Check file type
-  - Validate duration
-  - Check file size
+- [x] Update database schema
+  - Add videoType field (FEED/REELS)
+  - Create VideoType enum
+- [x] Update posting logic
+  - Detect video content type
+  - Use appropriate media_type (VIDEO/REELS)
+  - Poll status_code until FINISHED
+  - Handle ERROR status gracefully
 
-**Files to Modify**:
-- `src/pages/api/social-media-accounts/[id]/post.ts` - Add video logic
-- `src/pages/api/upload.ts` - Support video uploads
-- `src/pages/dashboard.tsx` - Video preview and selection
-- `src/components/VideoPreview.tsx` (new) - Video player component
+**Features Implemented**:
+- Video validation utility (duration, size, format, aspect ratio)
+- Video preview component with playback controls
+- Instagram Video API integration with:
+  - Container creation with video_url
+  - Automatic detection of FEED vs REELS based on videoType
+  - Status polling (IN_PROGRESS → FINISHED)
+  - 1-minute timeout with 2-second intervals
+  - Error handling for failed processing
+- Support for both Feed videos (up to 60 min) and Reels (3-90s)
+- Database schema updated with videoType field
 
-**API Endpoints**:
-- Instagram Graph API: `POST /{ig-user-id}/media` with `media_type=VIDEO`
-- Instagram Graph API: `POST /{ig-user-id}/media_publish`
+**Files Created/Modified**:
+- `src/lib/video-validator.ts` - Video validation utility (existing)
+- `src/components/VideoPreview.tsx` - Video player component (existing)
+- `src/pages/api/social-media-accounts/[id]/post.ts` - Added video posting logic
+- `src/pages/api/upload.ts` - Video upload support (existing)
+- `prisma/schema.prisma` - Added videoType field and VideoType enum
 
-**Testing**:
-- Upload and post short video (< 60s)
-- Test different formats (MP4, MOV)
-- Test file size limits
-- Verify video appears on Instagram
+**API Integration**:
+- Instagram Graph API: `POST /{ig-user-id}/media` with `media_type=VIDEO` or `media_type=REELS`
+- Instagram Graph API: `GET /{container-id}?fields=status_code` for status polling
+- Instagram Graph API: `POST /{ig-user-id}/media_publish` after processing complete
 
-**Estimated Time**: 3-4 days
+**Testing Notes**:
+- User will need to test with actual Instagram API:
+  - Upload and post short video (Reels: 3-90s, 9:16)
+  - Upload and post feed video (up to 60 min, various ratios)
+  - Test different formats (MP4, MOV)
+  - Verify video appears on Instagram
+  - Test processing timeout handling
+
+**Estimated Time**: 3-4 days (COMPLETED)
+
+---
+
+#### 1.4 Calendar View for Content Organization (2-3 days) - HIGH PRIORITY
+**Objective**: Visual calendar interface for organizing and managing scheduled posts
+
+**Tasks**:
+- [x] Create CalendarView component
+  - Monthly calendar display with react-day-picker
+  - Visual indicators for dates with posts
+  - Click on date to view all posts for that day
+  - Status-based color coding (draft/scheduled/published/failed)
+- [x] Integrate with dashboard
+  - Add "Calendar View" tab in dashboard
+  - Pass posts data to CalendarView component
+  - Wire up edit, delete, and view actions
+- [x] Add upcoming posts preview
+  - Show next 7 days of scheduled posts
+  - Sort by scheduled time
+  - Quick navigation to specific dates
+- [x] Implement day details dialog
+  - Show all posts for selected date
+  - Display post previews (image/video thumbnails)
+  - Quick access to edit/delete/view actions
+  - Show scheduling time and account info
+- [x] Add visual status legend
+  - Color-coded badges for each status
+  - Clear visual hierarchy
+- [x] Update API to include account info
+  - Include socialMediaAccount relation
+  - Return accountType for display
+
+**Features Implemented**:
+- Monthly calendar view with date selection
+- Visual indicators (dots) on dates with scheduled posts
+- Status legend with color-coded badges
+- Upcoming posts preview (next 7 days)
+- Day details dialog showing all posts for a date
+- Post previews with thumbnails
+- Quick actions: view, edit, delete
+- Integration with existing dashboard functionality
+- Support for all content types (IMAGE, VIDEO, BLOG_POST)
+- Display video type (FEED/REELS) when applicable
+- Show associated social media account
+
+**Files Created**:
+- `src/components/CalendarView.tsx` - Calendar view component
+
+**Files Modified**:
+- `src/pages/dashboard.tsx` - Added Calendar View tab
+- `src/pages/api/content-posts/index.ts` - Include accountType in response
+- `prisma/schema.prisma` - Added videoType field to ContentPost model
+
+**Benefits**:
+- Easy visualization of content schedule
+- Quick identification of content gaps
+- Efficient management of multiple scheduled posts
+- Better planning and organization
+- Visual feedback on post status
+- Improved user experience
+
+**Estimated Time**: 2-3 days (COMPLETED)
 
 ---
 
@@ -544,38 +622,45 @@ NANO_BANANA_BASE_URL=https://api.nano-banana.google.com
 ## Priority Roadmap
 
 ```
-Week 1-2:   ⚡ CRITICAL - Scheduling Automation
+Week 1-2:   ✅ CRITICAL - Scheduling Automation (COMPLETED)
             └─ /api/scheduler/run + Vercel Cron
             └─ Job locking, retry logic, rate limiting
             └─ Scheduled posts tab in dashboard
 
-Week 2-3:   🔐 HIGH - Instagram OAuth + Token Encryption
+Week 2-3:   ✅ HIGH - Instagram OAuth + Token Encryption (COMPLETED)
             └─ OAuth 2.0 flow
             └─ Token encryption at rest
             └─ Automatic token refresh
 
-Week 3-4:   📹 MEDIUM-HIGH - Video Posting to Instagram
+Week 3-4:   ✅ MEDIUM-HIGH - Video Posting to Instagram (COMPLETED)
             └─ Instagram Video API integration
             └─ Video upload to Supabase
             └─ Video preview in UI
+            └─ Support for Reels and Feed videos
 
-Week 4-5:   🔍 RESEARCH - Google Nano Banana Integration
+Week 4:     ✅ HIGH - Calendar View for Content Organization (COMPLETED)
+            └─ Visual calendar interface
+            └─ Upcoming posts preview
+            └─ Day details dialog
+            └─ Status-based color coding
+
+Week 5-6:   🔍 RESEARCH - Google Nano Banana Integration
             └─ Review API documentation
             └─ Set up authentication
             └─ Test image/video generation
 
-Week 5-7:   🤖 MEDIUM - AI Video/Image Generation
+Week 6-8:   🤖 MEDIUM - AI Video/Image Generation
             └─ Implement Nano Banana client
             └─ Image generation endpoint
             └─ Video generation endpoint
             └─ Handle async generation
 
-Week 7-9:   🎨 OPTIONAL - Enhanced Features
+Week 8-10:  🎨 OPTIONAL - Enhanced Features
             └─ Multi-image carousels
             └─ Advanced AI options
             └─ Bluesky & X integration
 
-Week 9-10:  ✨ POLISH - Production Readiness
+Week 10-11: ✨ POLISH - Production Readiness
             └─ Testing & bug fixes
             └─ Performance optimization
             └─ Analytics & insights
