@@ -16,6 +16,7 @@ import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
 import LogsViewer from "@/components/LogsViewer";
+import { CalendarView } from "@/components/CalendarView";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -32,9 +33,14 @@ type ContentPost = {
   caption: string;
   imageUrl?: string;
   contentType: "IMAGE" | "VIDEO" | "BLOG_POST";
+  videoType?: "FEED" | "REELS" | null;
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
   socialMediaAccountId?: string;
+  socialMediaAccount?: {
+    username: string;
+    accountType: string;
+  } | null;
 };
 
 // Component for editing social media account details
@@ -158,12 +164,13 @@ export default function Dashboard() {
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "BLUESKY" | "X" });
   const [isCreatingPost, setIsCreatingPost] = useState(false);
-  const [newPost, setNewPost] = useState({ 
-    caption: "", 
-    imageUrl: "", 
+  const [newPost, setNewPost] = useState({
+    caption: "",
+    imageUrl: "",
     imageFile: null as File | null,
-    socialMediaAccountId: "", 
+    socialMediaAccountId: "",
     contentType: "IMAGE",
+    videoType: "FEED" as "FEED" | "REELS",
     scheduledFor: null as string | null
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -443,6 +450,8 @@ export default function Dashboard() {
         caption: newPost.caption,
         imageUrl: imageUrl,
         contentType: newPost.contentType,
+        // Include videoType if it's a video
+        ...(newPost.contentType === 'VIDEO' ? { videoType: newPost.videoType } : {}),
         // Set status to DRAFT if saveAsDraft is true
         ...(saveAsDraft ? { status: 'DRAFT' } : {}),
         // Include scheduledFor if it's set
@@ -497,12 +506,13 @@ export default function Dashboard() {
       }
       
       setPosts([...posts, newPostData]);
-      setNewPost({ 
-        caption: "", 
-        imageUrl: "", 
+      setNewPost({
+        caption: "",
+        imageUrl: "",
         imageFile: null,
-        socialMediaAccountId: "", 
+        socialMediaAccountId: "",
         contentType: "IMAGE",
+        videoType: "FEED",
         scheduledFor: null
       });
       setIsCreatingPost(false);
@@ -608,6 +618,7 @@ export default function Dashboard() {
         imageFile: null,
         socialMediaAccountId: "",
         contentType: "IMAGE",
+        videoType: "FEED",
         scheduledFor: null
       });
       
@@ -950,7 +961,34 @@ export default function Dashboard() {
                               </div>
                             </RadioGroup>
                           </div>
-                          
+
+                          {/* Video Type Selection - Only show when VIDEO is selected */}
+                          {newPost.contentType === 'VIDEO' && (
+                            <div className="grid gap-2">
+                              <Label htmlFor="video-type">Video Type</Label>
+                              <RadioGroup
+                                value={newPost.videoType}
+                                onValueChange={(value) => setNewPost({...newPost, videoType: value as "FEED" | "REELS"})}
+                                className="flex flex-wrap gap-4"
+                              >
+                                <div className="flex items-center space-x-2">
+                                  <RadioGroupItem value="FEED" id="video-feed-type" />
+                                  <Label htmlFor="video-feed-type" className="cursor-pointer">
+                                    Feed Video
+                                    <span className="text-xs text-muted-foreground block">Square/landscape, up to 60 min</span>
+                                  </Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <RadioGroupItem value="REELS" id="video-reels-type" />
+                                  <Label htmlFor="video-reels-type" className="cursor-pointer">
+                                    Reels
+                                    <span className="text-xs text-muted-foreground block">Vertical (9:16), 3-90 seconds</span>
+                                  </Label>
+                                </div>
+                              </RadioGroup>
+                            </div>
+                          )}
+
                           <div className="grid gap-2">
                             <Label htmlFor="caption">Caption</Label>
                             <Textarea
@@ -1147,6 +1185,7 @@ export default function Dashboard() {
                   <TabsTrigger value="drafts">Drafts</TabsTrigger>
                   <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
                   <TabsTrigger value="published">Published</TabsTrigger>
+                  <TabsTrigger value="calendar">Calendar View</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="all">
@@ -2016,6 +2055,53 @@ export default function Dashboard() {
                       </CardContent>
                     </Card>
                   )}
+                </TabsContent>
+
+                <TabsContent value="calendar">
+                  <CalendarView
+                    posts={posts}
+                    onEditPost={(postId) => {
+                      // Handle edit post
+                      toast({
+                        title: "Edit Post",
+                        description: "Edit functionality coming soon!",
+                      });
+                    }}
+                    onDeletePost={async (postId) => {
+                      if (confirm('Are you sure you want to delete this post?')) {
+                        try {
+                          const response = await fetch(`/api/content-posts/${postId}`, {
+                            method: 'DELETE',
+                          });
+
+                          if (!response.ok) {
+                            throw new Error('Failed to delete post');
+                          }
+
+                          toast({
+                            title: "Success",
+                            description: "Post deleted successfully",
+                          });
+
+                          // Refresh posts
+                          fetchPosts();
+                        } catch (error) {
+                          toast({
+                            title: "Error",
+                            description: "Failed to delete post",
+                            variant: "destructive",
+                          });
+                        }
+                      }
+                    }}
+                    onViewPost={(postId) => {
+                      // Scroll to the post in the all posts tab
+                      const postElement = document.getElementById(`post-${postId}`);
+                      if (postElement) {
+                        postElement.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }}
+                  />
                 </TabsContent>
               </Tabs>
             </TabsContent>

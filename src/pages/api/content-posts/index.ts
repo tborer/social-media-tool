@@ -40,6 +40,7 @@ async function getContentPosts(req: NextApiRequest, res: NextApiResponse, userId
           select: {
             id: true,
             username: true,
+            accountType: true,
           },
         },
       },
@@ -103,7 +104,7 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       });
     }
     
-    const { caption, imageUrl, socialMediaAccountId, contentType, status } = req.body;
+    const { caption, imageUrl, socialMediaAccountId, contentType, videoType, status } = req.body;
     
     // Update log with request details
     await prisma.log.update({
@@ -212,7 +213,12 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
     if (contentType) {
       postData.contentType = contentType;
     }
-    
+
+    // Add videoType if provided (for VIDEO content)
+    if (videoType) {
+      postData.videoType = videoType;
+    }
+
     // Add scheduledFor if provided
     if (scheduledFor) {
       postData.scheduledFor = new Date(scheduledFor);
