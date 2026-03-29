@@ -3,7 +3,6 @@ import { createClient } from '@/util/supabase/component';
 import { User } from '@supabase/supabase-js';
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from 'next/router';
-import prisma from '@/lib/prisma';
 
 interface AuthContextType {
   user: User | null;
@@ -36,21 +35,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const supabase = createClient();
   const { toast } = useToast();
 
-  // Sync a Supabase user to the Prisma users table (no credentials stored)
-  const createUser = async (u: User) => {
+  // Sync a Supabase user to the Prisma users table via server-side API
+  const createUser = async (_u: User) => {
     try {
-      // Upsert Prisma user using Supabase user id as primary key
-      await prisma.user.upsert({
-        where: { id: u.id },
-        update: {
-          email: u.email || undefined,
-        },
-        create: {
-          id: u.id,
-          email: u.email || undefined,
-          createdAt: new Date(),
-        },
-      });
+      await fetch('/api/auth/sync-user', { method: 'POST' });
     } catch (error) {
       console.error('createUser upsert error:', error);
     }
