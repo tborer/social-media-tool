@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import prisma from '@/lib/prisma';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/server-logger';
 import { JobLock } from '@/lib/job-lock';
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken } from '@/lib/instagram-token-manager';

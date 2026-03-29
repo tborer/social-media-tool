@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/server-logger';
 import { getAccessToken } from '@/lib/instagram-token-manager';
 
 // Helper function to resolve image URL to a publicly accessible URL

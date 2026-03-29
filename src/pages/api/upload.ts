@@ -3,7 +3,7 @@ import { createClient } from '@/util/supabase/api';
 import { IncomingForm } from 'formidable';
 import { promises as fs, constants as FS_CONSTANTS } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/server-logger';
 import { LogType } from '@prisma/client';
 import prisma from '@/lib/prisma';
 

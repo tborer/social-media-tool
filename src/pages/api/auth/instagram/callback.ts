@@ -7,7 +7,7 @@ import {
   calculateExpirationDate,
 } from '@/lib/instagram-oauth';
 import { encrypt, isEncryptionConfigured } from '@/lib/encryption';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/server-logger';
 import prisma from '@/lib/prisma';
 
 /**

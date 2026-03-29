@@ -1,4 +1,4 @@
-import React, { createContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { createClient } from '@/util/supabase/component';
 import { User } from '@supabase/supabase-js';
 import { useToast } from "@/components/ui/use-toast";
@@ -27,6 +27,8 @@ export const AuthContext = createContext<AuthContextType>({
   resetPassword: async () => {},
   initializing: false
 });
+
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const router = useRouter();
@@ -137,7 +139,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     getUser();
 
-    const { subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setUser(session.user);
         await createUser(session.user);
