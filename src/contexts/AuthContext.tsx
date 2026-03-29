@@ -44,7 +44,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         where: { id: u.id },
         update: {
           email: u.email || undefined,
-          updatedAt: new Date(),
         },
         create: {
           id: u.id,
