@@ -1,5 +1,4 @@
 import { LogType } from '@prisma/client';
-import prisma from '@/lib/prisma';
 
 interface LogData {
   type: LogType;
@@ -29,6 +28,8 @@ export async function createLog(logData: LogData): Promise<void> {
 // For server-side logging (API routes)
 export async function createServerLog(logData: LogData): Promise<void> {
   try {
+    // Dynamic import to avoid bundling Prisma into client-side code
+    const prisma = (await import('@/lib/prisma')).default;
     await prisma.log.create({
       data: {
         type: logData.type,
