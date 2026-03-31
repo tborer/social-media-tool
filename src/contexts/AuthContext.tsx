@@ -40,21 +40,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Sync a Supabase user to the database via API route
   const createUser = async (_u: User) => {
     try {
-      await fetch('/api/user/sync', {
+      console.log('[AuthContext] createUser: syncing user to database via API...', _u.id);
+      const res = await fetch('/api/user/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      if (!res.ok) {
+        const body = await res.text();
+        console.error('[AuthContext] createUser: API returned error', res.status, body);
+      } else {
+        console.log('[AuthContext] createUser: user synced successfully');
+      }
     } catch (error) {
-      console.error('createUser sync error:', error);
+      console.error('[AuthContext] createUser: network error', error);
     }
   };
 
   const signUp = async (email: string, password: string) => {
+    console.log('[AuthContext] signUp: starting sign up...');
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
+      console.error('[AuthContext] signUp: Supabase error', error.message);
       toast({ variant: 'destructive', title: 'Error', description: error.message });
       throw error;
     }
+    console.log('[AuthContext] signUp: Supabase response', { userId: data?.user?.id, confirmed: data?.user?.email_confirmed_at });
     if (data?.user) {
       await createUser(data.user);
       setUser(data.user);
@@ -63,11 +73,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signIn = async (email: string, password: string) => {
+    console.log('[AuthContext] signIn: starting sign in...');
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      console.error('[AuthContext] signIn: Supabase error', error.message);
       toast({ variant: 'destructive', title: 'Error', description: error.message });
       throw error;
     }
+    console.log('[AuthContext] signIn: success, userId:', data?.user?.id);
     if (data?.user) {
       await createUser(data.user);
       setUser(data.user);
@@ -143,6 +156,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('[AuthContext] onAuthStateChange:', _event, 'userId:', session?.user?.id);
       if (session?.user) {
         setUser(session.user);
         await createUser(session.user);

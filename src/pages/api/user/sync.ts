@@ -7,15 +7,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  console.log('[api/user/sync] Received sync request');
+
   const supabase = createClient(req, res);
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    console.error('[api/user/sync] Auth failed:', authError?.message || 'No user in session');
+    return res.status(401).json({ error: 'Unauthorized', detail: authError?.message });
   }
 
+  console.log('[api/user/sync] Authenticated user:', user.id, user.email);
+
   try {
-    await prisma.user.upsert({
+    const result = await prisma.user.upsert({
       where: { id: user.id },
       update: {
         email: user.email || undefined,
@@ -26,9 +31,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
+    console.log('[api/user/sync] Upsert successful:', result.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error('User sync error:', error);
+    console.error('[api/user/sync] Prisma upsert error:', error);
     return res.status(500).json({ error: 'Failed to sync user' });
   }
 }
