@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import { getAuthorizationUrl, isInstagramConfigured } from '@/lib/instagram-oauth';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/server-logger';
 import crypto from 'crypto';
 
 /**

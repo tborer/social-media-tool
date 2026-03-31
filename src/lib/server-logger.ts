@@ -1,7 +1,8 @@
 import { LogType } from '@prisma/client';
+import prisma from '@/lib/prisma';
 
 interface LogData {
-  type: string;
+  type: LogType;
   endpoint: string;
   requestData: any;
   response?: any;
@@ -10,24 +11,8 @@ interface LogData {
   userId: string;
 }
 
-// For client-side logging via API
-export async function createLog(logData: LogData): Promise<void> {
-  try {
-    await fetch('/api/logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(logData),
-    });
-  } catch (error) {
-    console.error('Failed to create log:', error);
-  }
-}
-
-// For server-side logging (API routes)
 export async function createServerLog(logData: LogData): Promise<void> {
   try {
-    // Dynamic import to avoid bundling Prisma into client-side code
-    const prisma = (await import('@/lib/prisma')).default;
     await prisma.log.create({
       data: {
         type: logData.type,
@@ -44,27 +29,15 @@ export async function createServerLog(logData: LogData): Promise<void> {
   }
 }
 
-// Helper function to safely stringify objects for logging
 function safeStringify(obj: any): string {
   try {
     return JSON.stringify(obj, (key, value) => {
-      // Handle circular references and special objects
       if (typeof value === 'object' && value !== null) {
         if (value instanceof Error) {
-          return {
-            name: value.name,
-            message: value.message,
-            stack: value.stack,
-          };
+          return { name: value.name, message: value.message, stack: value.stack };
         }
-        // Handle File objects
         if (value instanceof File || value.constructor?.name === 'File') {
-          return {
-            name: value.name,
-            size: value.size,
-            type: value.type,
-            lastModified: value.lastModified,
-          };
+          return { name: value.name, size: value.size, type: value.type, lastModified: value.lastModified };
         }
       }
       return value;
@@ -74,27 +47,36 @@ function safeStringify(obj: any): string {
   }
 }
 
-export async function fetchLogs(): Promise<any[]> {
-  try {
-    const response = await fetch('/api/logs');
-    if (!response.ok) throw new Error('Failed to fetch logs');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching logs:', error);
-    return [];
-  }
-}
-
 export const logger = {
-  log: createLog,
   info: (message: string, ...args: any[]) => {
     console.info(`[INFO] ${new Date().toISOString()} - ${message}`, ...args);
+    const lastArg = args.length > 0 ? args[args.length - 1] : null;
+    if (lastArg && typeof lastArg === 'object' && lastArg.userId) {
+      const { userId, ...rest } = lastArg;
+      createServerLog({ type: LogType.CONTENT_POST, endpoint: 'console', requestData: { message, ...rest }, userId })
+        .catch(err => console.error('Failed to create server log:', err));
+    }
   },
   error: (message: string, ...args: any[]) => {
+    const errorDetails = args.map(arg =>
+      arg instanceof Error ? `${arg.name}: ${arg.message}\nStack: ${arg.stack}` : safeStringify(arg)
+    ).join('\n');
     console.error(`[ERROR] ${new Date().toISOString()} - ${message}`, ...args);
+    const lastArg = args.length > 0 ? args[args.length - 1] : null;
+    if (lastArg && typeof lastArg === 'object' && lastArg.userId) {
+      const { userId } = lastArg;
+      createServerLog({ type: LogType.CONTENT_POST, endpoint: 'console', requestData: { message }, error: errorDetails, userId })
+        .catch(err => console.error('Failed to create server log:', err));
+    }
   },
   warn: (message: string, ...args: any[]) => {
     console.warn(`[WARN] ${new Date().toISOString()} - ${message}`, ...args);
+    const lastArg = args.length > 0 ? args[args.length - 1] : null;
+    if (lastArg && typeof lastArg === 'object' && lastArg.userId) {
+      const { userId, ...rest } = lastArg;
+      createServerLog({ type: LogType.CONTENT_POST, endpoint: 'console', requestData: { message, ...rest }, userId })
+        .catch(err => console.error('Failed to create server log:', err));
+    }
   },
   debug: (message: string, ...args: any[]) => {
     console.debug(`[DEBUG] ${new Date().toISOString()} - ${message}`, ...args);
