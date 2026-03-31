@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { IncomingForm } from 'formidable';
 import { promises as fs, constants as FS_CONSTANTS } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
@@ -221,7 +222,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         logger.info(`Read file into buffer, size: ${buffer.length} bytes`, { userId: user.id });
 
         const storagePath = `${user.id}/${fileName}`;
-        const uploadResult = await supabase.storage.from('uploads').upload(storagePath, buffer, {
+        // Use service role client for storage operations to bypass RLS policies
+        const supabaseAdmin = createSupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const uploadResult = await supabaseAdmin.storage.from('uploads').upload(storagePath, buffer, {
           contentType: mimeType,
           cacheControl: '3600',
           upsert: true,
@@ -245,7 +251,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
         }
 
-        const urlResult = supabase.storage.from('uploads').getPublicUrl(storagePath);
+        const urlResult = supabaseAdmin.storage.from('uploads').getPublicUrl(storagePath);
         if (!urlResult || !urlResult.data || !urlResult.data.publicUrl) {
           const errorMsg = 'Failed to create public URL for the uploaded file.';
           logger.error(errorMsg, { userId: user.id });
