@@ -1,9 +1,8 @@
-import React, { createContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { createClient } from '@/util/supabase/component';
 import { User } from '@supabase/supabase-js';
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from 'next/router';
-import prisma from '@/lib/prisma';
 
 interface AuthContextType {
   user: User | null;
@@ -29,6 +28,8 @@ export const AuthContext = createContext<AuthContextType>({
   initializing: false
 });
 
+export const useAuth = () => useContext(AuthContext);
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -36,22 +37,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const supabase = createClient();
   const { toast } = useToast();
 
-  // Sync a Supabase user to the Prisma users table (no credentials stored)
-  const createUser = async (u: User) => {
+  // Sync a Supabase user to the Prisma users table via server-side API
+  const createUser = async (_u: User) => {
     try {
-      // Upsert Prisma user using Supabase user id as primary key
-      await prisma.user.upsert({
-        where: { id: u.id },
-        update: {
-          email: u.email || undefined,
-          updatedAt: new Date(),
-        },
-        create: {
-          id: u.id,
-          email: u.email || undefined,
-          createdAt: new Date(),
-        },
-      });
+      await fetch('/api/auth/sync-user', { method: 'POST' });
     } catch (error) {
       console.error('createUser upsert error:', error);
     }
@@ -150,7 +139,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     getUser();
 
-    const { subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setUser(session.user);
         await createUser(session.user);

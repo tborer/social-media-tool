@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/server-logger';
 import { LogType } from '@prisma/client';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
