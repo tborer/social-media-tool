@@ -124,7 +124,7 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
     if (!caption) {
       const errorMsg = 'Caption is required';
       logger.error(`Error creating content post: ${errorMsg}`, { userId });
-      
+
       // Update log with error
       await prisma.log.update({
         where: { id: logEntry.id },
@@ -133,7 +133,22 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
           status: 400
         }
       });
-      
+
+      return res.status(400).json({ error: errorMsg });
+    }
+
+    // Instagram caption length validation
+    if (caption.length > 2200) {
+      const errorMsg = `Caption is too long (${caption.length} characters). Maximum is 2,200.`;
+      await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
+      return res.status(400).json({ error: errorMsg });
+    }
+
+    // Instagram hashtag limit validation
+    const hashtagCount = (caption.match(/#\w+/g) || []).length;
+    if (hashtagCount > 30) {
+      const errorMsg = `Too many hashtags (${hashtagCount}). Maximum is 30.`;
+      await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
       return res.status(400).json({ error: errorMsg });
     }
     

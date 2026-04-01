@@ -36,6 +36,9 @@ type ContentPost = {
   videoType?: "FEED" | "REELS" | null;
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
+  igMediaId?: string | null;
+  errorMessage?: string | null;
+  retryCount?: number;
   socialMediaAccountId?: string;
   socialMediaAccount?: {
     username: string;
@@ -184,6 +187,20 @@ export default function Dashboard() {
   const [isGeneratingInspired, setIsGeneratingInspired] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
 
+  // Scheduling dialog state
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
+  const [scheduleHour, setScheduleHour] = useState<number>(12);
+  const [scheduleMinute, setScheduleMinute] = useState<number>(0);
+  const [scheduleAccountId, setScheduleAccountId] = useState<string>("");
+
+  // Insights state
+  const [postInsights, setPostInsights] = useState<any[]>([]);
+  const [accountInsights, setAccountInsights] = useState<any[]>([]);
+  const [isFetchingInsights, setIsFetchingInsights] = useState(false);
+  const [selectedInsightsAccountId, setSelectedInsightsAccountId] = useState<string>("");
+
   // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
@@ -278,6 +295,27 @@ export default function Dashboard() {
         variant: "destructive",
         title: "Error",
         description: "Please add a caption for your post",
+      });
+      return;
+    }
+
+    // Instagram caption validation
+    if (newPost.caption.length > 2200) {
+      toast({
+        variant: "destructive",
+        title: "Caption too long",
+        description: `Caption is ${newPost.caption.length} characters. Instagram allows a maximum of 2,200 characters.`,
+      });
+      return;
+    }
+
+    // Instagram hashtag limit validation
+    const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+    if (hashtagCount > 30) {
+      toast({
+        variant: "destructive",
+        title: "Too many hashtags",
+        description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
       });
       return;
     }
@@ -643,6 +681,133 @@ export default function Dashboard() {
     }
   };
 
+  // Schedule a post
+  const handleSchedulePost = async () => {
+    if (!schedulingPostId || !scheduleDate) {
+      toast({ variant: "destructive", title: "Error", description: "Please select a date and time" });
+      return;
+    }
+
+    const scheduledDateTime = new Date(scheduleDate);
+    scheduledDateTime.setHours(scheduleHour, scheduleMinute, 0, 0);
+
+    if (scheduledDateTime <= new Date()) {
+      toast({ variant: "destructive", title: "Error", description: "Scheduled time must be in the future" });
+      return;
+    }
+
+    try {
+      const body: any = {
+        status: 'SCHEDULED',
+        scheduledFor: scheduledDateTime.toISOString(),
+      };
+      if (scheduleAccountId) {
+        body.socialMediaAccountId = scheduleAccountId;
+      }
+
+      const response = await fetch(`/api/content-posts/${schedulingPostId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Failed to schedule post');
+
+      setPosts(posts.map(p =>
+        p.id === schedulingPostId
+          ? { ...p, status: 'SCHEDULED' as const, scheduledFor: scheduledDateTime.toISOString(), socialMediaAccountId: scheduleAccountId || p.socialMediaAccountId }
+          : p
+      ));
+
+      toast({ title: "Success", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+      setIsScheduling(false);
+      setSchedulingPostId(null);
+      setScheduleDate(undefined);
+      setScheduleHour(12);
+      setScheduleMinute(0);
+      setScheduleAccountId("");
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to schedule post" });
+    }
+  };
+
+  // Fetch post insights
+  const fetchPostInsights = async () => {
+    try {
+      const response = await fetch('/api/insights/post-insights', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setPostInsights(data);
+      }
+    } catch (error) {
+      console.error('Error fetching post insights:', error);
+    }
+  };
+
+  // Fetch account insights
+  const fetchAccountInsights = async (accountId: string) => {
+    try {
+      const response = await fetch(`/api/insights/account-insights?accountId=${accountId}`, { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setAccountInsights(data);
+      }
+    } catch (error) {
+      console.error('Error fetching account insights:', error);
+    }
+  };
+
+  // Manually trigger insights refresh for a post
+  const refreshPostInsights = async (postId: string) => {
+    setIsFetchingInsights(true);
+    try {
+      const response = await fetch('/api/insights/post-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch insights');
+      }
+
+      toast({ title: "Success", description: "Post insights updated" });
+      fetchPostInsights();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to fetch insights" });
+    } finally {
+      setIsFetchingInsights(false);
+    }
+  };
+
+  // Manually trigger insights refresh for an account
+  const refreshAccountInsights = async (accountId: string) => {
+    setIsFetchingInsights(true);
+    try {
+      const response = await fetch('/api/insights/account-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch insights');
+      }
+
+      toast({ title: "Success", description: "Account insights updated" });
+      fetchAccountInsights(accountId);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to fetch insights" });
+    } finally {
+      setIsFetchingInsights(false);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-background flex-col">
@@ -998,6 +1163,14 @@ export default function Dashboard() {
                               placeholder="Write your post caption here..."
                               className="min-h-[100px]"
                             />
+                            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                              <span className={newPost.caption.length > 2200 ? 'text-destructive font-medium' : ''}>
+                                {newPost.caption.length}/2,200 characters
+                              </span>
+                              <span className={(newPost.caption.match(/#\w+/g) || []).length > 30 ? 'text-destructive font-medium' : ''}>
+                                {(newPost.caption.match(/#\w+/g) || []).length}/30 hashtags
+                              </span>
+                            </div>
                             <Button 
                               variant="outline" 
                               className="mt-2"
@@ -1224,13 +1397,19 @@ export default function Dashboard() {
                             {new Date(post.scheduledFor).toLocaleString()}
                           </CardDescription>
                         )}
+                        {post.status === 'FAILED' && post.errorMessage && (
+                          <CardDescription className="text-destructive text-xs mt-1">
+                            Error: {post.errorMessage}
+                            {post.retryCount ? ` (${post.retryCount} retries)` : ''}
+                          </CardDescription>
+                        )}
                       </CardHeader>
                       <CardContent>
                         {post.imageUrl && (
                           <div className="aspect-square relative mb-4 rounded-md overflow-hidden">
-                            <img 
-                              src={post.imageUrl} 
-                              alt="Post image" 
+                            <img
+                              src={post.imageUrl}
+                              alt="Post image"
                               className="object-cover w-full h-full"
                               onError={(e) => {
                                 // If image fails to load, show placeholder
@@ -1370,19 +1549,19 @@ export default function Dashboard() {
                                         }
                                         
                                         const result = await response.json();
-                                        
+
                                         // Update the post in the local state
-                                        setPosts(posts.map(p => 
-                                          p.id === post.id 
-                                            ? {...p, status: 'PUBLISHED', socialMediaAccountId: accountId} 
+                                        setPosts(posts.map(p =>
+                                          p.id === post.id
+                                            ? {...p, status: 'PUBLISHED' as const, socialMediaAccountId: accountId, igMediaId: result.postResult?.mediaId || null}
                                             : p
                                         ));
-                                        
+
                                         toast({
-                                          title: "Success",
+                                          title: "Posted Successfully",
                                           description: result.message || "Content posted successfully",
                                         });
-                                        
+
                                         // Close the dialog
                                         const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
                                         if (closeButton) {
@@ -1392,14 +1571,14 @@ export default function Dashboard() {
                                         console.error('Error posting to social media:', error);
                                         toast({
                                           variant: "destructive",
-                                          title: "Error",
+                                          title: "Posting Failed",
                                           description: error instanceof Error ? error.message : "Failed to post to social media",
                                         });
-                                        
+
                                         // Update the post status to FAILED in the local state
-                                        setPosts(posts.map(p => 
-                                          p.id === post.id 
-                                            ? {...p, status: 'FAILED'} 
+                                        setPosts(posts.map(p =>
+                                          p.id === post.id
+                                            ? {...p, status: 'FAILED' as const}
                                             : p
                                         ));
                                       }
@@ -1410,17 +1589,17 @@ export default function Dashboard() {
                                 </DialogFooter>
                               </DialogContent>
                             </Dialog>
-                            <Button 
-                              variant="outline" 
-                              className="flex-1" 
+                            <Button
+                              variant="outline"
+                              className="flex-1"
                               size="sm"
                               onClick={() => {
-                                // Open a dialog to schedule the post
-                                // This would be implemented in a real app
-                                toast({
-                                  title: "Feature coming soon",
-                                  description: "Schedule post functionality is under development",
-                                });
+                                setSchedulingPostId(post.id);
+                                setScheduleAccountId(post.socialMediaAccountId || "");
+                                setScheduleDate(undefined);
+                                setScheduleHour(12);
+                                setScheduleMinute(0);
+                                setIsScheduling(true);
                               }}
                             >
                               Schedule
@@ -1660,19 +1839,19 @@ export default function Dashboard() {
                                           }
                                           
                                           const result = await response.json();
-                                          
+
                                           // Update the post in the local state
-                                          setPosts(posts.map(p => 
-                                            p.id === post.id 
-                                              ? {...p, status: 'PUBLISHED', socialMediaAccountId: accountId} 
+                                          setPosts(posts.map(p =>
+                                            p.id === post.id
+                                              ? {...p, status: 'PUBLISHED' as const, socialMediaAccountId: accountId, igMediaId: result.postResult?.mediaId || null}
                                               : p
                                           ));
-                                          
+
                                           toast({
-                                            title: "Success",
+                                            title: "Posted Successfully",
                                             description: result.message || "Content posted successfully",
                                           });
-                                          
+
                                           // Close the dialog
                                           const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
                                           if (closeButton) {
@@ -1682,14 +1861,14 @@ export default function Dashboard() {
                                           console.error('Error posting to social media:', error);
                                           toast({
                                             variant: "destructive",
-                                            title: "Error",
+                                            title: "Posting Failed",
                                             description: error instanceof Error ? error.message : "Failed to post to social media",
                                           });
-                                          
+
                                           // Update the post status to FAILED in the local state
-                                          setPosts(posts.map(p => 
-                                            p.id === post.id 
-                                              ? {...p, status: 'FAILED'} 
+                                          setPosts(posts.map(p =>
+                                            p.id === post.id
+                                              ? {...p, status: 'FAILED' as const}
                                               : p
                                           ));
                                         }
@@ -1705,16 +1884,12 @@ export default function Dashboard() {
                                 className="flex-1" 
                                 size="sm"
                                 onClick={() => {
-                                  // Open scheduling dialog
-                                  setNewPost({
-                                    caption: post.caption,
-                                    imageUrl: post.imageUrl || "",
-                                    imageFile: null,
-                                    socialMediaAccountId: post.socialMediaAccountId || "",
-                                    contentType: post.contentType,
-                                    scheduledFor: new Date().toISOString() // Set default to current time
-                                  });
-                                  setIsCreatingPost(true);
+                                  setSchedulingPostId(post.id);
+                                  setScheduleAccountId(post.socialMediaAccountId || "");
+                                  setScheduleDate(undefined);
+                                  setScheduleHour(12);
+                                  setScheduleMinute(0);
+                                  setIsScheduling(true);
                                 }}
                               >
                                 Schedule
@@ -2110,10 +2285,179 @@ export default function Dashboard() {
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold">Instagram Insights</h2>
                 <div className="text-sm text-muted-foreground">
-                  Discover high-performing content for inspiration
+                  Track performance &amp; discover high-performing content
                 </div>
               </div>
-              
+
+              {/* Account Insights Section */}
+              {accounts.filter(a => a.accountType === 'INSTAGRAM').length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span className="flex items-center">
+                        <Instagram className="h-5 w-5 mr-2 text-pink-500" />
+                        Account Performance
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={selectedInsightsAccountId}
+                          onChange={(e) => {
+                            setSelectedInsightsAccountId(e.target.value);
+                            if (e.target.value) fetchAccountInsights(e.target.value);
+                          }}
+                        >
+                          <option value="">Select account</option>
+                          {accounts.filter(a => a.accountType === 'INSTAGRAM').map((account) => (
+                            <option key={account.id} value={account.id}>
+                              @{account.username}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedInsightsAccountId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => refreshAccountInsights(selectedInsightsAccountId)}
+                            disabled={isFetchingInsights}
+                          >
+                            {isFetchingInsights ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          </Button>
+                        )}
+                      </div>
+                    </CardTitle>
+                    <CardDescription>
+                      View follower counts, profile views, and engagement metrics for your account.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {!selectedInsightsAccountId ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">Select an account above to view insights.</p>
+                    ) : accountInsights.length === 0 ? (
+                      <div className="text-center py-4">
+                        <p className="text-sm text-muted-foreground mb-2">No insights data yet.</p>
+                        <Button variant="outline" size="sm" onClick={() => refreshAccountInsights(selectedInsightsAccountId)} disabled={isFetchingInsights}>
+                          {isFetchingInsights ? "Fetching..." : "Fetch Insights Now"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        {(() => {
+                          const latest = accountInsights[0];
+                          const prev = accountInsights.length > 1 ? accountInsights[1] : null;
+                          const metrics = [
+                            { label: 'Followers', value: latest.followers, prev: prev?.followers },
+                            { label: 'Following', value: latest.following, prev: prev?.following },
+                            { label: 'Posts', value: latest.mediaCount, prev: prev?.mediaCount },
+                            { label: 'Profile Views', value: latest.profileViews, prev: prev?.profileViews },
+                            { label: 'Website Clicks', value: latest.websiteClicks, prev: prev?.websiteClicks },
+                          ];
+                          return metrics.map((m) => {
+                            const diff = m.prev !== undefined && m.prev !== null ? m.value - m.prev : null;
+                            return (
+                              <div key={m.label} className="rounded-lg border p-3 text-center">
+                                <div className="text-2xl font-bold">{m.value.toLocaleString()}</div>
+                                <div className="text-xs text-muted-foreground">{m.label}</div>
+                                {diff !== null && diff !== 0 && (
+                                  <div className={`text-xs mt-1 ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {diff > 0 ? '+' : ''}{diff.toLocaleString()}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    )}
+                    {accountInsights.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Last updated: {new Date(accountInsights[0].fetchedAt).toLocaleString()}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Post Performance Section */}
+              {posts.filter(p => p.status === 'PUBLISHED').length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Post Performance</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchPostInsights}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" /> Load Insights
+                      </Button>
+                    </CardTitle>
+                    <CardDescription>
+                      View engagement metrics for your published posts. Click refresh on individual posts to pull latest data from Instagram.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {posts.filter(p => p.status === 'PUBLISHED').map((post) => {
+                        const insight = postInsights.find(i => i.postId === post.id);
+                        return (
+                          <div key={post.id} className="rounded-lg border p-4">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{post.caption.substring(0, 60)}...</p>
+                                {post.socialMediaAccount && (
+                                  <p className="text-xs text-muted-foreground">@{post.socialMediaAccount.username}</p>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => refreshPostInsights(post.id)}
+                                disabled={isFetchingInsights}
+                              >
+                                <RefreshCw className={`h-3 w-3 ${isFetchingInsights ? 'animate-spin' : ''}`} />
+                              </Button>
+                            </div>
+                            {insight ? (
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                <div>
+                                  <div className="text-lg font-bold">{insight.reach.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Reach</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.likes.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Likes</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.comments.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Comments</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.shares.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Shares</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.saves.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Saves</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.engagement.toFixed(1)}%</div>
+                                  <div className="text-xs text-muted-foreground">Engagement</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground text-center py-2">
+                                No insights yet. Click refresh to fetch from Instagram.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Search Section */}
               <Card className="mb-6">
                 <CardHeader>
@@ -2449,6 +2793,90 @@ export default function Dashboard() {
             </TabsContent>
           </Tabs>
         </main>
+
+        {/* Schedule Post Dialog */}
+        <Dialog open={isScheduling} onOpenChange={setIsScheduling}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Schedule Post</DialogTitle>
+              <DialogDescription>
+                Choose when to automatically publish this post.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="justify-start text-left font-normal">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {scheduleDate ? format(scheduleDate, 'PPP') : 'Pick a date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComponent
+                      mode="single"
+                      selected={scheduleDate}
+                      onSelect={setScheduleDate}
+                      disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Hour</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={scheduleHour}
+                    onChange={(e) => setScheduleHour(parseInt(e.target.value))}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Minute</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={scheduleMinute}
+                    onChange={(e) => setScheduleMinute(parseInt(e.target.value))}
+                  >
+                    {Array.from({ length: 60 }, (_, i) => (
+                      <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {accounts.length > 0 && (
+                <div className="grid gap-2">
+                  <Label>Social Media Account</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={scheduleAccountId}
+                    onChange={(e) => setScheduleAccountId(e.target.value)}
+                  >
+                    <option value="">Select an account</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" :
+                         account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsScheduling(false)}>Cancel</Button>
+              <Button onClick={handleSchedulePost} disabled={!scheduleDate}>
+                Schedule Post
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ProtectedRoute>
   );
