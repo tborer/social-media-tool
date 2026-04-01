@@ -18,6 +18,9 @@ model User {
   userSettings       UserSettings?
   logs               Log[]
   urlMappings        UrlMapping[]
+  contentIdeas       ContentIdea[]
+  trackedHashtags    TrackedHashtag[]
+  trackedCompetitors TrackedCompetitor[]
 }
 
 model SocialMediaAccount {
@@ -143,6 +146,62 @@ model AccountInsight {
   fetchedAt     DateTime           @default(now())
 
   @@index([accountId])
+}
+
+enum IdeaStatus {
+  NEW
+  IN_PROGRESS
+  USED
+  ARCHIVED
+}
+
+model ContentIdea {
+  id                String     @id @default(uuid())
+  userId            String     @db.Uuid
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceUrl         String?
+  sourceAccountName String?
+  sourceCaption     String?
+  sourceImageUrl    String?
+  sourceLikes       Int?
+  sourceComments    Int?
+  notes             String?
+  tags              String[]   // Array of tag strings
+  status            IdeaStatus @default(NEW)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@index([userId])
+}
+
+model TrackedHashtag {
+  id        String   @id @default(uuid())
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hashtag   String
+  postCount Int?     // Last known post count
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, hashtag])
+  @@index([userId])
+}
+
+model TrackedCompetitor {
+  id            String   @id @default(uuid())
+  userId        String   @db.Uuid
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  igUserId      String?
+  username      String
+  followerCount Int?
+  mediaCount    Int?
+  bio           String?
+  lastFetchedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, username])
+  @@index([userId])
 }
 
 model UrlMapping {

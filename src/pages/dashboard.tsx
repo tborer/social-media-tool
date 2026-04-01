@@ -201,6 +201,13 @@ export default function Dashboard() {
   const [isFetchingInsights, setIsFetchingInsights] = useState(false);
   const [selectedInsightsAccountId, setSelectedInsightsAccountId] = useState<string>("");
 
+  // Discovery state
+  const [searchType, setSearchType] = useState<'hashtag' | 'account'>('hashtag');
+  const [accountSearchResults, setAccountSearchResults] = useState<any[]>([]);
+  const [contentIdeas, setContentIdeas] = useState<any[]>([]);
+  const [trackedHashtags, setTrackedHashtags] = useState<any[]>([]);
+  const [trackedCompetitors, setTrackedCompetitors] = useState<any[]>([]);
+
   // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
@@ -241,8 +248,11 @@ export default function Dashboard() {
           setIsLoading(false);
         }
       };
-      
+
       fetchData();
+      fetchContentIdeas();
+      fetchTrackedHashtags();
+      fetchTrackedCompetitors();
     }
   }, [user, toast]);
 
@@ -590,41 +600,177 @@ export default function Dashboard() {
   // Instagram Insights functions
   const handleInstagramSearch = async () => {
     if (!searchQuery.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter a search term",
-      });
+      toast({ variant: "destructive", title: "Error", description: "Please enter a search term" });
       return;
     }
 
     setIsSearching(true);
+    setSearchResults([]);
+    setAccountSearchResults([]);
     try {
-      const response = await fetch(`/api/instagram/search?query=${encodeURIComponent(searchQuery)}`, {
-        credentials: 'include',
-      });
+      const response = await fetch(
+        `/api/instagram/search?query=${encodeURIComponent(searchQuery)}&type=${searchType}`,
+        { credentials: 'include' }
+      );
 
       if (!response.ok) {
-        throw new Error('Failed to search Instagram content');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to search Instagram content');
       }
 
       const data = await response.json();
-      setSearchResults(data.results || []);
-      
-      toast({
-        title: "Search Complete",
-        description: `Found ${data.results?.length || 0} posts`,
-      });
+      if (data.searchType === 'account') {
+        setAccountSearchResults(data.results || []);
+        toast({ title: "Search Complete", description: `Found ${data.results?.length || 0} accounts` });
+      } else {
+        setSearchResults(data.results || []);
+        toast({ title: "Search Complete", description: `Found ${data.results?.length || 0} posts` });
+      }
     } catch (error) {
-      console.error('Error searching Instagram:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to search Instagram content",
-      });
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to search" });
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // Content Ideas functions
+  const fetchContentIdeas = async () => {
+    try {
+      const response = await fetch('/api/content-ideas', { credentials: 'include' });
+      if (response.ok) setContentIdeas(await response.json());
+    } catch (error) { console.error('Error fetching content ideas:', error); }
+  };
+
+  const saveAsIdea = async (post: any) => {
+    try {
+      const response = await fetch('/api/content-ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceUrl: post.permalink || '',
+          sourceAccountName: post.username || '',
+          sourceCaption: post.caption || '',
+          sourceImageUrl: post.imageUrl || '',
+          sourceLikes: post.likes || 0,
+          sourceComments: post.comments || 0,
+          tags: post.hashtags || [],
+        }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to save idea');
+      toast({ title: "Saved", description: "Post saved to your content ideas" });
+      fetchContentIdeas();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to save idea" });
+    }
+  };
+
+  const deleteIdea = async (id: string) => {
+    try {
+      await fetch(`/api/content-ideas/${id}`, { method: 'DELETE', credentials: 'include' });
+      setContentIdeas(contentIdeas.filter(i => i.id !== id));
+      toast({ title: "Deleted", description: "Content idea removed" });
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to delete idea" }); }
+  };
+
+  const updateIdeaStatus = async (id: string, status: string) => {
+    try {
+      const response = await fetch(`/api/content-ideas/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+        credentials: 'include',
+      });
+      if (response.ok) {
+        setContentIdeas(contentIdeas.map(i => i.id === id ? { ...i, status } : i));
+      }
+    } catch { /* silent */ }
+  };
+
+  // Tracked Hashtags functions
+  const fetchTrackedHashtags = async () => {
+    try {
+      const response = await fetch('/api/discovery/tracked-hashtags', { credentials: 'include' });
+      if (response.ok) setTrackedHashtags(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const trackHashtag = async (hashtag: string) => {
+    try {
+      const response = await fetch('/api/discovery/tracked-hashtags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hashtag }),
+        credentials: 'include',
+      });
+      if (response.status === 409) { toast({ title: "Already tracked", description: `#${hashtag.replace(/^#/, '')} is already in your list` }); return; }
+      if (!response.ok) throw new Error('Failed to track hashtag');
+      toast({ title: "Tracked", description: `Now tracking #${hashtag.replace(/^#/, '')}` });
+      fetchTrackedHashtags();
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to track hashtag" }); }
+  };
+
+  const untrackHashtag = async (id: string) => {
+    try {
+      await fetch('/api/discovery/tracked-hashtags', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+        credentials: 'include',
+      });
+      setTrackedHashtags(trackedHashtags.filter(h => h.id !== id));
+    } catch { /* silent */ }
+  };
+
+  // Tracked Competitors functions
+  const fetchTrackedCompetitors = async () => {
+    try {
+      const response = await fetch('/api/discovery/tracked-competitors', { credentials: 'include' });
+      if (response.ok) setTrackedCompetitors(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const trackCompetitor = async (username: string) => {
+    try {
+      const response = await fetch('/api/discovery/tracked-competitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+        credentials: 'include',
+      });
+      if (response.status === 409) { toast({ title: "Already tracked", description: `@${username.replace(/^@/, '')} is already in your list` }); return; }
+      if (!response.ok) throw new Error('Failed to track competitor');
+      toast({ title: "Tracked", description: `Now tracking @${username.replace(/^@/, '')}` });
+      fetchTrackedCompetitors();
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to track competitor" }); }
+  };
+
+  const untrackCompetitor = async (id: string) => {
+    try {
+      await fetch('/api/discovery/tracked-competitors', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+        credentials: 'include',
+      });
+      setTrackedCompetitors(trackedCompetitors.filter(c => c.id !== id));
+    } catch { /* silent */ }
+  };
+
+  const refreshCompetitor = async (competitorId: string) => {
+    try {
+      const response = await fetch('/api/discovery/refresh-competitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ competitorId }),
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setTrackedCompetitors(trackedCompetitors.map(c => c.id === competitorId ? updated : c));
+        toast({ title: "Updated", description: "Competitor data refreshed" });
+      }
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to refresh competitor" }); }
   };
 
   const handleGenerateInspiredContent = async (post: any) => {
@@ -2463,116 +2609,82 @@ export default function Dashboard() {
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <Instagram className="h-5 w-5 mr-2 text-pink-500" />
-                    Search Instagram Content
+                    Search Instagram
                   </CardTitle>
                   <CardDescription>
-                    Search for trending posts, hashtags, or accounts to find inspiration for your content.
+                    Search for hashtags or look up accounts to find high-performing content.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Search for posts, hashtags, or usernames..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleInstagramSearch();
-                        }
-                      }}
-                      className="flex-1"
-                    />
-                    <Button 
-                      onClick={handleInstagramSearch}
-                      disabled={isSearching}
+                  <div className="flex gap-2 mb-3">
+                    <Button
+                      variant={searchType === 'hashtag' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSearchType('hashtag')}
                     >
-                      {isSearching ? (
-                        <>
-                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                          Searching...
-                        </>
-                      ) : (
-                        "Search"
-                      )}
+                      # Hashtag
+                    </Button>
+                    <Button
+                      variant={searchType === 'account' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSearchType('account')}
+                    >
+                      @ Account
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Try searching for topics like "travel", "food", "fitness", or specific hashtags like "#photography"
-                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder={searchType === 'hashtag' ? 'Search hashtags (e.g. travel, photography)...' : 'Look up an account (e.g. natgeo)...'}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyPress={(e) => { if (e.key === 'Enter') handleInstagramSearch(); }}
+                      className="flex-1"
+                    />
+                    <Button onClick={handleInstagramSearch} disabled={isSearching}>
+                      {isSearching ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Searching...</> : "Search"}
+                    </Button>
+                  </div>
+                  {searchType === 'hashtag' && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Note: Instagram limits hashtag searches to 30 unique hashtags per 7 days per account.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Search Results */}
+              {/* Hashtag Search Results */}
               {searchResults.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="text-lg font-semibold mb-4">Search Results ({searchResults.length} posts found)</h3>
+                  <h3 className="text-lg font-semibold mb-4">Hashtag Results ({searchResults.length} posts)</h3>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {searchResults.map((post) => (
-                      <Card key={post.id} className="cursor-pointer hover:shadow-md transition-shadow">
-                        <CardHeader className="pb-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
-                                <span className="text-white text-xs font-bold">
-                                  {post.username.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-sm">@{post.username}</p>
-                                <div className="flex items-center gap-1">
-                                  <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium ${
-                                    post.accountType === 'business' ? 'bg-blue-100 text-blue-800' :
-                                    post.accountType === 'creator' ? 'bg-purple-100 text-purple-800' :
-                                    'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {post.accountType}
-                                  </span>
-                                  {post.verified && (
-                                    <svg className="w-3 h-3 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                    </svg>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right text-xs text-muted-foreground">
-                              <div>{post.likes.toLocaleString()} likes</div>
-                              <div>{post.comments.toLocaleString()} comments</div>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="pt-0">
+                    {searchResults.map((post: any) => (
+                      <Card key={post.id}>
+                        <CardContent className="pt-4">
                           {post.imageUrl && (
                             <div className="aspect-square relative mb-3 rounded-md overflow-hidden">
-                              <img 
-                                src={post.imageUrl} 
-                                alt="Instagram post" 
-                                className="object-cover w-full h-full"
-                              />
+                              <img src={post.imageUrl} alt="Post" className="object-cover w-full h-full" />
                             </div>
                           )}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs text-muted-foreground">
+                              {post.likes.toLocaleString()} likes / {post.comments.toLocaleString()} comments
+                            </div>
+                            {post.timestamp && <div className="text-xs text-muted-foreground">{new Date(post.timestamp).toLocaleDateString()}</div>}
+                          </div>
                           <p className="text-sm line-clamp-3 mb-2">{post.caption}</p>
                           <div className="flex flex-wrap gap-1 mb-3">
-                            {post.hashtags.slice(0, 3).map((hashtag: string, index: number) => (
-                              <span key={index} className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700">
-                                {hashtag}
+                            {(post.hashtags || []).slice(0, 4).map((tag: string, i: number) => (
+                              <span key={i} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-blue-50 text-blue-700 cursor-pointer" onClick={() => trackHashtag(tag)}>
+                                {tag}
                               </span>
                             ))}
-                            {post.hashtags.length > 3 && (
-                              <span className="text-xs text-muted-foreground">
-                                +{post.hashtags.length - 3} more
-                              </span>
-                            )}
                           </div>
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-muted-foreground">
-                              {new Date(post.timestamp).toLocaleDateString()}
-                            </div>
-                            <Button 
-                              size="sm" 
-                              onClick={() => setSelectedPost(post)}
-                            >
-                              Use as Inspiration
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => saveAsIdea(post)}>
+                              Save Idea
+                            </Button>
+                            <Button size="sm" className="flex-1" onClick={() => setSelectedPost(post)}>
+                              Create Content
                             </Button>
                           </div>
                         </CardContent>
@@ -2582,53 +2694,247 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* No Results Message */}
-              {searchQuery && searchResults.length === 0 && !isSearching && (
-                <Card>
+              {/* Account Search Results */}
+              {accountSearchResults.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-4">Account Results</h3>
+                  {accountSearchResults.map((account: any) => (
+                    <Card key={account.id} className="mb-4">
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {account.profilePicture ? (
+                              <img src={account.profilePicture} alt={account.username} className="w-12 h-12 rounded-full" />
+                            ) : (
+                              <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
+                                <span className="text-white font-bold">{(account.username || '?').charAt(0).toUpperCase()}</span>
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-semibold">@{account.username}</p>
+                              {account.name && <p className="text-sm text-muted-foreground">{account.name}</p>}
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm" onClick={() => trackCompetitor(account.username)}>
+                            Track Account
+                          </Button>
+                        </div>
+                        {account.bio && <p className="text-sm mt-2">{account.bio}</p>}
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-3 gap-4 text-center mb-4">
+                          <div>
+                            <div className="text-lg font-bold">{(account.followers || 0).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Followers</div>
+                          </div>
+                          <div>
+                            <div className="text-lg font-bold">{(account.following || 0).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Following</div>
+                          </div>
+                          <div>
+                            <div className="text-lg font-bold">{(account.mediaCount || 0).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Posts</div>
+                          </div>
+                        </div>
+                        {account.recentPosts?.length > 0 && (
+                          <>
+                            <h4 className="text-sm font-medium mb-2">Recent Posts</h4>
+                            <div className="grid grid-cols-3 gap-2">
+                              {account.recentPosts.map((post: any) => (
+                                <div key={post.id} className="relative group cursor-pointer" onClick={() => saveAsIdea({ ...post, username: account.username })}>
+                                  {post.imageUrl ? (
+                                    <img src={post.imageUrl} alt="" className="aspect-square object-cover rounded-md w-full" />
+                                  ) : (
+                                    <div className="aspect-square bg-muted rounded-md flex items-center justify-center">
+                                      <Image className="h-6 w-6 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center text-white text-xs">
+                                    <div className="text-center">
+                                      <div>{(post.likes || 0).toLocaleString()} likes</div>
+                                      <div className="mt-1">Click to save</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* No Results */}
+              {searchQuery && searchResults.length === 0 && accountSearchResults.length === 0 && !isSearching && (
+                <Card className="mb-6">
                   <CardContent className="text-center py-8">
                     <Instagram className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-medium mb-2">No posts found</h3>
+                    <h3 className="text-lg font-medium mb-2">No results found</h3>
                     <p className="text-muted-foreground mb-4">
-                      Try searching with different keywords or hashtags.
+                      {searchType === 'account' ? 'Account must be a Business or Creator account to be discoverable.' : 'Try a different hashtag.'}
                     </p>
-                    <Button variant="outline" onClick={() => {
-                      setSearchQuery("");
-                      setSearchResults([]);
-                    }}>
-                      Clear Search
-                    </Button>
+                    <Button variant="outline" onClick={() => { setSearchQuery(""); setSearchResults([]); setAccountSearchResults([]); }}>Clear Search</Button>
                   </CardContent>
                 </Card>
               )}
 
-              {/* Getting Started Message */}
-              {!searchQuery && searchResults.length === 0 && (
-                <Card>
-                  <CardContent className="text-center py-8">
-                    <Instagram className="h-12 w-12 mx-auto mb-4 text-pink-500" />
-                    <h3 className="text-lg font-medium mb-2">Discover Inspiring Content</h3>
-                    <p className="text-muted-foreground mb-4">
-                      Search for high-performing Instagram posts to inspire your content creation. 
-                      Find trending hashtags, successful post formats, and engaging captions.
-                    </p>
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      {['travel', 'food', 'fitness', 'photography', 'fashion'].map((suggestion) => (
-                        <Button 
-                          key={suggestion}
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setSearchQuery(suggestion);
-                            handleInstagramSearch();
-                          }}
-                        >
-                          {suggestion}
-                        </Button>
+              {/* Saved Content Ideas */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Saved Content Ideas</span>
+                    <span className="text-sm font-normal text-muted-foreground">{contentIdeas.length} ideas</span>
+                  </CardTitle>
+                  <CardDescription>Posts you've saved as inspiration for your own content.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {contentIdeas.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">No saved ideas yet. Search for content and click "Save Idea" to start building your library.</p>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {contentIdeas.map((idea: any) => (
+                        <div key={idea.id} className="rounded-lg border p-3">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1 min-w-0">
+                              {idea.sourceAccountName && <p className="text-xs text-muted-foreground">@{idea.sourceAccountName}</p>}
+                              <p className="text-sm line-clamp-2">{idea.sourceCaption || idea.notes || 'No caption'}</p>
+                            </div>
+                            <select
+                              className="h-7 rounded border text-xs ml-2"
+                              value={idea.status}
+                              onChange={(e) => updateIdeaStatus(idea.id, e.target.value)}
+                            >
+                              <option value="NEW">New</option>
+                              <option value="IN_PROGRESS">In Progress</option>
+                              <option value="USED">Used</option>
+                              <option value="ARCHIVED">Archived</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="flex gap-1">
+                              {(idea.tags || []).slice(0, 3).map((tag: string, i: number) => (
+                                <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{tag}</span>
+                              ))}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                                setSelectedPost({
+                                  username: idea.sourceAccountName || '',
+                                  caption: idea.sourceCaption || '',
+                                  imageUrl: idea.sourceImageUrl || '',
+                                  likes: idea.sourceLikes || 0,
+                                  comments: idea.sourceComments || 0,
+                                  hashtags: idea.tags || [],
+                                });
+                              }}>
+                                Create
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => deleteIdea(idea.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
                       ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Tracked Hashtags & Competitors */}
+              <div className="grid gap-6 md:grid-cols-2 mb-6">
+                {/* Tracked Hashtags */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tracked Hashtags</CardTitle>
+                    <CardDescription>Hashtags you're monitoring. Click a hashtag from search results to track it.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {trackedHashtags.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-2">No tracked hashtags yet.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {trackedHashtags.map((th: any) => (
+                          <span key={th.id} className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm bg-blue-50 text-blue-700">
+                            #{th.hashtag}
+                            {th.postCount && <span className="text-xs text-blue-500">({th.postCount.toLocaleString()})</span>}
+                            <button
+                              className="ml-1 text-blue-400 hover:text-red-500"
+                              onClick={() => untrackHashtag(th.id)}
+                            >
+                              x
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <Input
+                        placeholder="Add hashtag..."
+                        className="h-8 text-sm"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            const input = e.target as HTMLInputElement;
+                            if (input.value.trim()) { trackHashtag(input.value.trim()); input.value = ''; }
+                          }
+                        }}
+                      />
                     </div>
                   </CardContent>
                 </Card>
-              )}
+
+                {/* Tracked Competitors */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tracked Competitors</CardTitle>
+                    <CardDescription>Accounts you're monitoring for content strategy.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {trackedCompetitors.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-2">No tracked competitors yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {trackedCompetitors.map((comp: any) => (
+                          <div key={comp.id} className="flex items-center justify-between rounded-lg border p-2">
+                            <div>
+                              <p className="font-medium text-sm">@{comp.username}</p>
+                              <div className="flex gap-3 text-xs text-muted-foreground">
+                                {comp.followerCount != null && <span>{comp.followerCount.toLocaleString()} followers</span>}
+                                {comp.mediaCount != null && <span>{comp.mediaCount.toLocaleString()} posts</span>}
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => refreshCompetitor(comp.id)}>
+                                <RefreshCw className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { setSearchType('account'); setSearchQuery(comp.username); handleInstagramSearch(); }}>
+                                View
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => untrackCompetitor(comp.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <Input
+                        placeholder="Add @username..."
+                        className="h-8 text-sm"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            const input = e.target as HTMLInputElement;
+                            if (input.value.trim()) { trackCompetitor(input.value.trim()); input.value = ''; }
+                          }
+                        }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
               {/* Inspiration Dialog */}
               <Dialog open={!!selectedPost} onOpenChange={() => setSelectedPost(null)}>
