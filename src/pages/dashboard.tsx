@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/components/ui/use-toast";
 import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings } from "lucide-react";
 import { useRouter } from "next/router";
@@ -183,6 +184,7 @@ export default function Dashboard() {
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [isGeneratingInspired, setIsGeneratingInspired] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
+  const [searchFilters, setSearchFilters] = useState<string[]>(["for_you"]);
 
   // Fetch social media accounts and content posts
   useEffect(() => {
@@ -562,7 +564,8 @@ export default function Dashboard() {
 
     setIsSearching(true);
     try {
-      const response = await fetch(`/api/instagram/search?query=${encodeURIComponent(searchQuery)}`, {
+      const filtersParam = searchFilters.length > 0 ? `&filters=${encodeURIComponent(searchFilters.join(','))}` : '';
+      const response = await fetch(`/api/instagram/search?query=${encodeURIComponent(searchQuery)}${filtersParam}`, {
         credentials: 'include',
       });
 
@@ -2152,6 +2155,25 @@ export default function Dashboard() {
                       )}
                     </Button>
                   </div>
+                  <div className="mt-3">
+                    <Label className="text-xs text-muted-foreground mb-2 block">Search in:</Label>
+                    <ToggleGroup
+                      type="multiple"
+                      value={searchFilters}
+                      onValueChange={(value) => {
+                        if (value.length > 0) setSearchFilters(value);
+                      }}
+                      variant="outline"
+                      size="sm"
+                      className="justify-start flex-wrap"
+                    >
+                      <ToggleGroupItem value="for_you" className="text-xs">For you</ToggleGroupItem>
+                      <ToggleGroupItem value="accounts" className="text-xs">Accounts</ToggleGroupItem>
+                      <ToggleGroupItem value="audio" className="text-xs">Audio</ToggleGroupItem>
+                      <ToggleGroupItem value="tags" className="text-xs">Tags</ToggleGroupItem>
+                      <ToggleGroupItem value="places" className="text-xs">Places</ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
                   <p className="text-xs text-muted-foreground mt-2">
                     Try searching for topics like "travel", "food", "fitness", or specific hashtags like "#photography"
                   </p>
@@ -2208,6 +2230,18 @@ export default function Dashboard() {
                             </div>
                           )}
                           <p className="text-sm line-clamp-3 mb-2">{post.caption}</p>
+                          {post.audioName && (
+                            <div className="flex items-center gap-1 mb-2 text-xs text-muted-foreground">
+                              <span>🎵</span>
+                              <span>{post.audioName}{post.audioArtist ? ` · ${post.audioArtist}` : ''}</span>
+                            </div>
+                          )}
+                          {post.placeName && (
+                            <div className="flex items-center gap-1 mb-2 text-xs text-muted-foreground">
+                              <span>📍</span>
+                              <span>{post.placeName}</span>
+                            </div>
+                          )}
                           <div className="flex flex-wrap gap-1 mb-3">
                             {post.hashtags.slice(0, 3).map((hashtag: string, index: number) => (
                               <span key={index} className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700">
