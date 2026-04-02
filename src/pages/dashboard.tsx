@@ -214,6 +214,20 @@ export default function Dashboard() {
   const [captionReview, setCaptionReview] = useState<any>(null);
   const [isReviewingCaption, setIsReviewingCaption] = useState(false);
 
+  // Outreach state
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [outreachMessages, setOutreachMessages] = useState<any[]>([]);
+  const [outreachCriteria, setOutreachCriteria] = useState<any[]>([]);
+  const [outreachStats, setOutreachStats] = useState<any>(null);
+  const [contactFilter, setContactFilter] = useState<string>('');
+  const [contactSearch, setContactSearch] = useState('');
+  const [isAddingContact, setIsAddingContact] = useState(false);
+  const [newContact, setNewContact] = useState({ igUsername: '', displayName: '', niche: '', location: '', notes: '' });
+  const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
+  const [messageTemplateType, setMessageTemplateType] = useState('introduction');
+  const [customMessageInstructions, setCustomMessageInstructions] = useState('');
+
   // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
@@ -259,6 +273,9 @@ export default function Dashboard() {
       fetchContentIdeas();
       fetchTrackedHashtags();
       fetchTrackedCompetitors();
+      fetchContacts();
+      fetchOutreachStats();
+      fetchOutreachCriteria();
     }
   }, [user, toast]);
 
@@ -826,6 +843,125 @@ export default function Dashboard() {
     }
   };
 
+  // Outreach functions
+  const fetchContacts = async (status?: string, search?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (search) params.set('search', search);
+      const response = await fetch(`/api/outreach/contacts?${params}`, { credentials: 'include' });
+      if (response.ok) setContacts(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const fetchOutreachStats = async () => {
+    try {
+      const response = await fetch('/api/outreach/stats', { credentials: 'include' });
+      if (response.ok) setOutreachStats(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const fetchOutreachCriteria = async () => {
+    try {
+      const response = await fetch('/api/outreach/criteria', { credentials: 'include' });
+      if (response.ok) setOutreachCriteria(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const addContact = async () => {
+    if (!newContact.igUsername.trim()) { toast({ variant: "destructive", title: "Error", description: "Username is required" }); return; }
+    try {
+      const response = await fetch('/api/outreach/contacts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newContact), credentials: 'include',
+      });
+      if (response.status === 409) { toast({ title: "Exists", description: "Contact already in your list" }); return; }
+      if (!response.ok) throw new Error('Failed to add contact');
+      toast({ title: "Added", description: `@${newContact.igUsername.replace(/^@/, '')} added to contacts` });
+      setNewContact({ igUsername: '', displayName: '', niche: '', location: '', notes: '' });
+      setIsAddingContact(false);
+      fetchContacts(contactFilter, contactSearch);
+      fetchOutreachStats();
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to add contact" }); }
+  };
+
+  const updateContactStatus = async (contactId: string, status: string) => {
+    try {
+      const response = await fetch(`/api/outreach/contacts/${contactId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }), credentials: 'include',
+      });
+      if (response.ok) {
+        setContacts(contacts.map(c => c.id === contactId ? { ...c, status } : c));
+        fetchOutreachStats();
+      }
+    } catch { /* silent */ }
+  };
+
+  const deleteContact = async (contactId: string) => {
+    try {
+      await fetch(`/api/outreach/contacts/${contactId}`, { method: 'DELETE', credentials: 'include' });
+      setContacts(contacts.filter(c => c.id !== contactId));
+      if (selectedContact?.id === contactId) setSelectedContact(null);
+      fetchOutreachStats();
+    } catch { /* silent */ }
+  };
+
+  const generateOutreachMessage = async (contactId: string) => {
+    setIsGeneratingMessage(true);
+    try {
+      const response = await fetch('/api/outreach/generate-message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId, templateType: messageTemplateType, customInstructions: customMessageInstructions || undefined }),
+        credentials: 'include',
+      });
+      if (!response.ok) { const d = await response.json(); throw new Error(d.error || 'Failed'); }
+      const data = await response.json();
+      // Auto-save as draft
+      await fetch('/api/outreach/messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId, messageBody: data.messageBody, templateName: data.templateType, status: 'DRAFT' }),
+        credentials: 'include',
+      });
+      toast({ title: "Message Generated", description: "AI-generated message saved as draft" });
+      fetchContactMessages(contactId);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to generate message" });
+    } finally { setIsGeneratingMessage(false); }
+  };
+
+  const fetchContactMessages = async (contactId: string) => {
+    try {
+      const response = await fetch(`/api/outreach/messages?contactId=${contactId}`, { credentials: 'include' });
+      if (response.ok) setOutreachMessages(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const updateMessageStatus = async (messageId: string, status: string) => {
+    try {
+      const response = await fetch('/api/outreach/messages', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: messageId, status }), credentials: 'include',
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setOutreachMessages(outreachMessages.map(m => m.id === messageId ? updated : m));
+        fetchContacts(contactFilter, contactSearch);
+        fetchOutreachStats();
+      }
+    } catch { /* silent */ }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    try {
+      await fetch('/api/outreach/messages', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: messageId }), credentials: 'include',
+      });
+      setOutreachMessages(outreachMessages.filter(m => m.id !== messageId));
+    } catch { /* silent */ }
+  };
+
   const handleGenerateInspiredContent = async (post: any) => {
     setIsGeneratingInspired(true);
     try {
@@ -1041,6 +1177,7 @@ export default function Dashboard() {
               <TabsTrigger value="accounts">Social Media Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
               <TabsTrigger value="insights">Instagram Insights</TabsTrigger>
+              <TabsTrigger value="outreach">Outreach</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
               <TabsTrigger value="logging">Logging</TabsTrigger>
             </TabsList>
@@ -3184,7 +3321,322 @@ export default function Dashboard() {
                 </DialogContent>
               </Dialog>
             </TabsContent>
-            
+
+            <TabsContent value="outreach">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold">Outreach</h2>
+                <Button onClick={() => setIsAddingContact(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Contact
+                </Button>
+              </div>
+
+              {/* Outreach Funnel Stats */}
+              {outreachStats && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                  {[
+                    { label: 'Prospects', value: outreachStats.contactsByStatus?.PROSPECT || 0, color: 'bg-gray-100 text-gray-800' },
+                    { label: 'Contacted', value: outreachStats.contactsByStatus?.CONTACTED || 0, color: 'bg-blue-100 text-blue-800' },
+                    { label: 'Responded', value: outreachStats.contactsByStatus?.RESPONDED || 0, color: 'bg-green-100 text-green-800' },
+                    { label: 'Converted', value: outreachStats.contactsByStatus?.CONVERTED || 0, color: 'bg-purple-100 text-purple-800' },
+                    { label: 'Response Rate', value: outreachStats.responseRate != null ? `${(outreachStats.responseRate * 100).toFixed(0)}%` : 'N/A', color: 'bg-orange-100 text-orange-800' },
+                  ].map(s => (
+                    <div key={s.label} className="rounded-lg border p-3 text-center">
+                      <div className="text-2xl font-bold">{s.value}</div>
+                      <div className={`text-xs inline-flex rounded-full px-2 py-0.5 mt-1 ${s.color}`}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add Contact Dialog */}
+              <Dialog open={isAddingContact} onOpenChange={setIsAddingContact}>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Add Contact</DialogTitle>
+                    <DialogDescription>Add a person to your outreach list.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-3 py-4">
+                    <div className="grid gap-1">
+                      <Label>Instagram Username *</Label>
+                      <Input placeholder="@username" value={newContact.igUsername} onChange={e => setNewContact({ ...newContact, igUsername: e.target.value })} />
+                    </div>
+                    <div className="grid gap-1">
+                      <Label>Display Name</Label>
+                      <Input placeholder="Their name" value={newContact.displayName} onChange={e => setNewContact({ ...newContact, displayName: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-1">
+                        <Label>Niche</Label>
+                        <Input placeholder="e.g. fitness" value={newContact.niche} onChange={e => setNewContact({ ...newContact, niche: e.target.value })} />
+                      </div>
+                      <div className="grid gap-1">
+                        <Label>Location</Label>
+                        <Input placeholder="e.g. NYC" value={newContact.location} onChange={e => setNewContact({ ...newContact, location: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid gap-1">
+                      <Label>Notes</Label>
+                      <Textarea placeholder="Why you want to reach out..." value={newContact.notes} onChange={e => setNewContact({ ...newContact, notes: e.target.value })} className="min-h-[60px]" />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddingContact(false)}>Cancel</Button>
+                    <Button onClick={addContact}>Add Contact</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Contact Filters */}
+              <div className="flex gap-2 mb-4">
+                <Input
+                  placeholder="Search contacts..."
+                  value={contactSearch}
+                  onChange={e => { setContactSearch(e.target.value); fetchContacts(contactFilter, e.target.value); }}
+                  className="max-w-xs"
+                />
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={contactFilter}
+                  onChange={e => { setContactFilter(e.target.value); fetchContacts(e.target.value, contactSearch); }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="PROSPECT">Prospects</option>
+                  <option value="CONTACTED">Contacted</option>
+                  <option value="RESPONDED">Responded</option>
+                  <option value="CONVERTED">Converted</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
+              </div>
+
+              {/* Contact List + Detail View */}
+              <div className="grid gap-6 md:grid-cols-3">
+                {/* Contact List */}
+                <div className="md:col-span-1 space-y-2">
+                  {contacts.length === 0 ? (
+                    <Card>
+                      <CardContent className="text-center py-8">
+                        <p className="text-sm text-muted-foreground mb-2">No contacts yet.</p>
+                        <Button variant="outline" size="sm" onClick={() => setIsAddingContact(true)}>Add your first contact</Button>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    contacts.map((contact: any) => (
+                      <div
+                        key={contact.id}
+                        className={`rounded-lg border p-3 cursor-pointer transition-colors ${selectedContact?.id === contact.id ? 'border-primary bg-muted/50' : 'hover:bg-muted/30'}`}
+                        onClick={() => { setSelectedContact(contact); fetchContactMessages(contact.id); }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-sm">@{contact.igUsername}</p>
+                            {contact.displayName && <p className="text-xs text-muted-foreground">{contact.displayName}</p>}
+                          </div>
+                          <span className={`text-xs rounded-full px-2 py-0.5 ${
+                            contact.status === 'PROSPECT' ? 'bg-gray-100 text-gray-700' :
+                            contact.status === 'CONTACTED' ? 'bg-blue-100 text-blue-700' :
+                            contact.status === 'RESPONDED' ? 'bg-green-100 text-green-700' :
+                            contact.status === 'CONVERTED' ? 'bg-purple-100 text-purple-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {contact.status}
+                          </span>
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
+                          {contact.niche && <span>{contact.niche}</span>}
+                          {contact.location && <span>{contact.location}</span>}
+                          {contact._count?.outreachMessages > 0 && <span>{contact._count.outreachMessages} msgs</span>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Contact Detail + Messages */}
+                <div className="md:col-span-2">
+                  {!selectedContact ? (
+                    <Card>
+                      <CardContent className="text-center py-12">
+                        <p className="text-muted-foreground">Select a contact to view details and manage messages.</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Contact Info */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">@{selectedContact.igUsername}</CardTitle>
+                            <div className="flex gap-2">
+                              <select
+                                className="h-8 rounded border text-xs"
+                                value={selectedContact.status}
+                                onChange={e => updateContactStatus(selectedContact.id, e.target.value)}
+                              >
+                                <option value="PROSPECT">Prospect</option>
+                                <option value="CONTACTED">Contacted</option>
+                                <option value="RESPONDED">Responded</option>
+                                <option value="CONVERTED">Converted</option>
+                                <option value="INACTIVE">Inactive</option>
+                              </select>
+                              <Button variant="ghost" size="sm" className="text-destructive h-8" onClick={() => deleteContact(selectedContact.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            {selectedContact.displayName && <div><span className="text-muted-foreground">Name:</span> {selectedContact.displayName}</div>}
+                            {selectedContact.niche && <div><span className="text-muted-foreground">Niche:</span> {selectedContact.niche}</div>}
+                            {selectedContact.location && <div><span className="text-muted-foreground">Location:</span> {selectedContact.location}</div>}
+                            {selectedContact.followerCount != null && <div><span className="text-muted-foreground">Followers:</span> {selectedContact.followerCount.toLocaleString()}</div>}
+                            {selectedContact.bio && <div className="col-span-2"><span className="text-muted-foreground">Bio:</span> {selectedContact.bio}</div>}
+                            {selectedContact.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes:</span> {selectedContact.notes}</div>}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Generate Message */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Generate Message</CardTitle>
+                          <CardDescription>AI will create a personalized DM based on this contact's profile.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="flex gap-2 mb-2">
+                            <select
+                              className="h-9 rounded-md border border-input bg-background px-3 text-sm flex-1"
+                              value={messageTemplateType}
+                              onChange={e => setMessageTemplateType(e.target.value)}
+                            >
+                              <option value="introduction">Introduction</option>
+                              <option value="collaboration">Collaboration Request</option>
+                              <option value="product_pitch">Product Pitch</option>
+                              <option value="follow_up">Follow Up</option>
+                            </select>
+                            <Button
+                              size="sm"
+                              onClick={() => generateOutreachMessage(selectedContact.id)}
+                              disabled={isGeneratingMessage}
+                            >
+                              {isGeneratingMessage ? <><RefreshCw className="h-4 w-4 animate-spin mr-1" />Generating...</> : "Generate"}
+                            </Button>
+                          </div>
+                          <Input
+                            placeholder="Custom instructions (optional)..."
+                            value={customMessageInstructions}
+                            onChange={e => setCustomMessageInstructions(e.target.value)}
+                            className="text-sm"
+                          />
+                        </CardContent>
+                      </Card>
+
+                      {/* Messages List */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Messages ({outreachMessages.length})</CardTitle>
+                          <CardDescription>Draft and track messages to this contact. Copy message text and send manually via Instagram.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0 space-y-3">
+                          {outreachMessages.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">No messages yet. Generate one above.</p>
+                          ) : (
+                            outreachMessages.map((msg: any) => (
+                              <div key={msg.id} className="rounded-lg border p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    {msg.templateName && <span className="text-xs bg-muted px-2 py-0.5 rounded">{msg.templateName}</span>}
+                                    <span className={`text-xs rounded-full px-2 py-0.5 ${
+                                      msg.status === 'DRAFT' ? 'bg-yellow-100 text-yellow-700' :
+                                      msg.status === 'SENT' ? 'bg-blue-100 text-blue-700' :
+                                      msg.status === 'REPLIED' ? 'bg-green-100 text-green-700' :
+                                      'bg-red-100 text-red-700'
+                                    }`}>{msg.status}</span>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                                      navigator.clipboard.writeText(msg.messageBody);
+                                      toast({ title: "Copied", description: "Message copied to clipboard" });
+                                    }}>
+                                      Copy
+                                    </Button>
+                                    {msg.status === 'DRAFT' && (
+                                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => updateMessageStatus(msg.id, 'SENT')}>
+                                        Mark Sent
+                                      </Button>
+                                    )}
+                                    {msg.status === 'SENT' && (
+                                      <>
+                                        <Button variant="ghost" size="sm" className="h-7 px-2 text-green-600" onClick={() => updateMessageStatus(msg.id, 'REPLIED')}>
+                                          Got Reply
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="h-7 px-2 text-orange-600" onClick={() => updateMessageStatus(msg.id, 'NO_REPLY')}>
+                                          No Reply
+                                        </Button>
+                                      </>
+                                    )}
+                                    <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => deleteMessage(msg.id)}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <p className="text-sm whitespace-pre-wrap">{msg.messageBody}</p>
+                                <div className="text-xs text-muted-foreground mt-2">
+                                  {new Date(msg.createdAt).toLocaleDateString()}
+                                  {msg.sentAt && ` / Sent: ${new Date(msg.sentAt).toLocaleDateString()}`}
+                                  {msg.responseReceivedAt && ` / Reply: ${new Date(msg.responseReceivedAt).toLocaleDateString()}`}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Search Criteria Section */}
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="text-base">Search Criteria Templates</CardTitle>
+                  <CardDescription>Save criteria to help find potential contacts to add to your outreach list.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {outreachCriteria.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-2">No saved criteria yet.</p>
+                  ) : (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {outreachCriteria.map((c: any) => (
+                        <div key={c.id} className="rounded-lg border p-3">
+                          <div className="flex justify-between items-start">
+                            <p className="font-medium text-sm">{c.name}</p>
+                            <Button variant="ghost" size="sm" className="h-6 px-1 text-destructive" onClick={async () => {
+                              await fetch('/api/outreach/criteria', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }), credentials: 'include' });
+                              setOutreachCriteria(outreachCriteria.filter(x => x.id !== c.id));
+                            }}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {(c.searchTerms || []).map((t: string, i: number) => <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{t}</span>)}
+                            {(c.niches || []).map((n: string, i: number) => <span key={i} className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{n}</span>)}
+                            {(c.locations || []).map((l: string, i: number) => <span key={i} className="text-xs bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded">{l}</span>)}
+                          </div>
+                          {(c.followerMin || c.followerMax) && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Followers: {c.followerMin?.toLocaleString() || '0'} - {c.followerMax?.toLocaleString() || 'any'}
+                            </p>
+                          )}
+                          {c.notes && <p className="text-xs text-muted-foreground mt-1">{c.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <TabsContent value="wordpress">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold">WordPress Blog</h2>

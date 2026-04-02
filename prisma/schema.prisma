@@ -21,6 +21,9 @@ model User {
   contentIdeas       ContentIdea[]
   trackedHashtags    TrackedHashtag[]
   trackedCompetitors TrackedCompetitor[]
+  contacts           Contact[]
+  outreachMessages   OutreachMessage[]
+  outreachCriteria   OutreachCriteria[]
 }
 
 model SocialMediaAccount {
@@ -201,6 +204,81 @@ model TrackedCompetitor {
   updatedAt     DateTime @updatedAt
 
   @@unique([userId, username])
+  @@index([userId])
+}
+
+enum ContactStatus {
+  PROSPECT
+  CONTACTED
+  RESPONDED
+  CONVERTED
+  INACTIVE
+}
+
+enum OutreachMessageStatus {
+  DRAFT
+  SENT
+  REPLIED
+  NO_REPLY
+}
+
+model Contact {
+  id              String        @id @default(uuid())
+  userId          String        @db.Uuid
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  igUsername       String
+  igUserId        String?
+  displayName     String?
+  niche           String?
+  location        String?
+  followerCount   Int?
+  engagementRate  Float?
+  bio             String?
+  notes           String?
+  status          ContactStatus @default(PROSPECT)
+  lastContactedAt DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  outreachMessages OutreachMessage[]
+
+  @@unique([userId, igUsername])
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model OutreachMessage {
+  id                String                @id @default(uuid())
+  userId            String                @db.Uuid
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactId         String
+  contact           Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messageBody       String
+  templateName      String?
+  status            OutreachMessageStatus @default(DRAFT)
+  sentAt            DateTime?
+  responseReceivedAt DateTime?
+  responseNotes     String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([userId])
+  @@index([contactId])
+}
+
+model OutreachCriteria {
+  id            String   @id @default(uuid())
+  userId        String   @db.Uuid
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  searchTerms   String[]
+  locations     String[]
+  niches        String[]
+  followerMin   Int?
+  followerMax   Int?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   @@index([userId])
 }
 
