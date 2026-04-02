@@ -208,6 +208,12 @@ export default function Dashboard() {
   const [trackedHashtags, setTrackedHashtags] = useState<any[]>([]);
   const [trackedCompetitors, setTrackedCompetitors] = useState<any[]>([]);
 
+  // AI Recommendations state
+  const [recommendations, setRecommendations] = useState<any>(null);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  const [captionReview, setCaptionReview] = useState<any>(null);
+  const [isReviewingCaption, setIsReviewingCaption] = useState(false);
+
   // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
@@ -771,6 +777,53 @@ export default function Dashboard() {
         toast({ title: "Updated", description: "Competitor data refreshed" });
       }
     } catch { toast({ variant: "destructive", title: "Error", description: "Failed to refresh competitor" }); }
+  };
+
+  // AI Recommendations functions
+  const getRecommendations = async (type: 'general' | 'hashtag_suggestions' = 'general') => {
+    setIsLoadingRecommendations(true);
+    setRecommendations(null);
+    try {
+      const response = await fetch('/api/ai/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to get recommendations');
+      }
+      const data = await response.json();
+      setRecommendations(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to get recommendations" });
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
+  const reviewCaption = async (caption: string) => {
+    setIsReviewingCaption(true);
+    setCaptionReview(null);
+    try {
+      const response = await fetch('/api/ai/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'caption_review', caption }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to review caption');
+      }
+      const data = await response.json();
+      setCaptionReview(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to review caption" });
+    } finally {
+      setIsReviewingCaption(false);
+    }
   };
 
   const handleGenerateInspiredContent = async (post: any) => {
@@ -1488,8 +1541,46 @@ export default function Dashboard() {
                           )}
                         </div>
                       </ScrollArea>
+                      {/* AI Caption Review */}
+                      {captionReview && (
+                        <div className="rounded-lg border bg-muted/50 p-3 mt-2">
+                          <h4 className="font-medium text-sm mb-1">AI Review</h4>
+                          <p className="text-sm text-muted-foreground mb-2">{captionReview.recommendations}</p>
+                          {captionReview.suggestedCaption && (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium mb-1">Suggested caption:</p>
+                              <p className="text-sm bg-background rounded p-2 border">{captionReview.suggestedCaption}</p>
+                              <Button variant="outline" size="sm" className="mt-2" onClick={() => {
+                                setNewPost({ ...newPost, caption: captionReview.suggestedCaption });
+                                setCaptionReview(null);
+                              }}>
+                                Use Suggested Caption
+                              </Button>
+                            </div>
+                          )}
+                          {captionReview.suggestedHashtags?.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium mb-1">Suggested hashtags:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {captionReview.suggestedHashtags.map((tag: string, i: number) => (
+                                  <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded cursor-pointer" onClick={() => {
+                                    setNewPost({ ...newPost, caption: newPost.caption + ' ' + tag });
+                                  }}>{tag}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <DialogFooter className="mt-4">
                         <Button variant="outline" onClick={() => setIsCreatingPost(false)}>Cancel</Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => reviewCaption(newPost.caption)}
+                          disabled={isReviewingCaption || !newPost.caption}
+                        >
+                          {isReviewingCaption ? <><RefreshCw className="h-4 w-4 animate-spin mr-1" />Reviewing...</> : "AI Review"}
+                        </Button>
                         <Button variant="outline" onClick={() => handleCreatePost(true)}>Save to Drafts</Button>
                         <Button onClick={() => handleCreatePost(false)}>Create Post</Button>
                       </DialogFooter>
@@ -2603,6 +2694,79 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               )}
+
+              {/* AI Recommendations Section */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>AI Content Recommendations</span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => getRecommendations('general')}
+                        disabled={isLoadingRecommendations}
+                      >
+                        {isLoadingRecommendations ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Strategy Tips
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => getRecommendations('hashtag_suggestions')}
+                        disabled={isLoadingRecommendations}
+                      >
+                        Hashtag Ideas
+                      </Button>
+                    </div>
+                  </CardTitle>
+                  <CardDescription>
+                    Get AI-powered suggestions based on your performance data. The more published posts with insights, the better the recommendations.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {!recommendations && !isLoadingRecommendations && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Click "Strategy Tips" or "Hashtag Ideas" to get personalized recommendations based on your content performance.
+                    </p>
+                  )}
+                  {isLoadingRecommendations && (
+                    <div className="flex items-center justify-center py-8">
+                      <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                      <span className="text-sm text-muted-foreground">Analyzing your content performance...</span>
+                    </div>
+                  )}
+                  {recommendations && (
+                    <div className="space-y-4">
+                      <div className="prose prose-sm max-w-none">
+                        <div className="whitespace-pre-wrap text-sm">{recommendations.recommendations}</div>
+                      </div>
+                      {recommendations.actionItems?.length > 0 && (
+                        <div className="rounded-lg bg-muted p-4">
+                          <h4 className="font-medium text-sm mb-2">Action Items</h4>
+                          <ul className="space-y-1">
+                            {recommendations.actionItems.map((item: string, i: number) => (
+                              <li key={i} className="text-sm flex items-start gap-2">
+                                <span className="text-green-600 mt-0.5">-</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {recommendations.suggestedHashtags && (
+                        <div className="flex flex-wrap gap-1">
+                          {recommendations.suggestedHashtags.map((tag: string, i: number) => (
+                            <span key={i} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-blue-50 text-blue-700 cursor-pointer" onClick={() => trackHashtag(tag)}>
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Search Section */}
               <Card className="mb-6">
