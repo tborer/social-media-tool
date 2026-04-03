@@ -37,6 +37,9 @@ type ContentPost = {
   videoType?: "FEED" | "REELS" | null;
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
+  igMediaId?: string | null;
+  errorMessage?: string | null;
+  retryCount?: number;
   socialMediaAccountId?: string;
   socialMediaAccount?: {
     username: string;
@@ -186,6 +189,46 @@ export default function Dashboard() {
   const [customPrompt, setCustomPrompt] = useState("");
   const [searchFilters, setSearchFilters] = useState<string[]>(["for_you"]);
 
+  // Scheduling dialog state
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
+  const [scheduleHour, setScheduleHour] = useState<number>(12);
+  const [scheduleMinute, setScheduleMinute] = useState<number>(0);
+  const [scheduleAccountId, setScheduleAccountId] = useState<string>("");
+
+  // Insights state
+  const [postInsights, setPostInsights] = useState<any[]>([]);
+  const [accountInsights, setAccountInsights] = useState<any[]>([]);
+  const [isFetchingInsights, setIsFetchingInsights] = useState(false);
+  const [selectedInsightsAccountId, setSelectedInsightsAccountId] = useState<string>("");
+
+  // Discovery state
+  const [accountSearchResults, setAccountSearchResults] = useState<any[]>([]);
+  const [contentIdeas, setContentIdeas] = useState<any[]>([]);
+  const [trackedHashtags, setTrackedHashtags] = useState<any[]>([]);
+  const [trackedCompetitors, setTrackedCompetitors] = useState<any[]>([]);
+
+  // AI Recommendations state
+  const [recommendations, setRecommendations] = useState<any>(null);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  const [captionReview, setCaptionReview] = useState<any>(null);
+  const [isReviewingCaption, setIsReviewingCaption] = useState(false);
+
+  // Outreach state
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [outreachMessages, setOutreachMessages] = useState<any[]>([]);
+  const [outreachCriteria, setOutreachCriteria] = useState<any[]>([]);
+  const [outreachStats, setOutreachStats] = useState<any>(null);
+  const [contactFilter, setContactFilter] = useState<string>('');
+  const [contactSearch, setContactSearch] = useState('');
+  const [isAddingContact, setIsAddingContact] = useState(false);
+  const [newContact, setNewContact] = useState({ igUsername: '', displayName: '', niche: '', location: '', notes: '' });
+  const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
+  const [messageTemplateType, setMessageTemplateType] = useState('introduction');
+  const [customMessageInstructions, setCustomMessageInstructions] = useState('');
+
   // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
@@ -226,8 +269,14 @@ export default function Dashboard() {
           setIsLoading(false);
         }
       };
-      
+
       fetchData();
+      fetchContentIdeas();
+      fetchTrackedHashtags();
+      fetchTrackedCompetitors();
+      fetchContacts();
+      fetchOutreachStats();
+      fetchOutreachCriteria();
     }
   }, [user, toast]);
 
@@ -280,6 +329,27 @@ export default function Dashboard() {
         variant: "destructive",
         title: "Error",
         description: "Please add a caption for your post",
+      });
+      return;
+    }
+
+    // Instagram caption validation
+    if (newPost.caption.length > 2200) {
+      toast({
+        variant: "destructive",
+        title: "Caption too long",
+        description: `Caption is ${newPost.caption.length} characters. Instagram allows a maximum of 2,200 characters.`,
+      });
+      return;
+    }
+
+    // Instagram hashtag limit validation
+    const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+    if (hashtagCount > 30) {
+      toast({
+        variant: "destructive",
+        title: "Too many hashtags",
+        description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
       });
       return;
     }
@@ -554,42 +624,349 @@ export default function Dashboard() {
   // Instagram Insights functions
   const handleInstagramSearch = async () => {
     if (!searchQuery.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter a search term",
-      });
+      toast({ variant: "destructive", title: "Error", description: "Please enter a search term" });
       return;
     }
 
     setIsSearching(true);
+    setSearchResults([]);
+    setAccountSearchResults([]);
     try {
       const filtersParam = searchFilters.length > 0 ? `&filters=${encodeURIComponent(searchFilters.join(','))}` : '';
-      const response = await fetch(`/api/instagram/search?query=${encodeURIComponent(searchQuery)}${filtersParam}`, {
-        credentials: 'include',
-      });
+      const response = await fetch(
+        `/api/instagram/search?query=${encodeURIComponent(searchQuery)}${filtersParam}`,
+        { credentials: 'include' }
+      );
 
       if (!response.ok) {
-        throw new Error('Failed to search Instagram content');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to search Instagram content');
       }
 
       const data = await response.json();
-      setSearchResults(data.results || []);
-      
-      toast({
-        title: "Search Complete",
-        description: `Found ${data.results?.length || 0} posts`,
-      });
+      if (data.searchType === 'combined') {
+        setSearchResults(data.results || []);
+        setAccountSearchResults(data.accountResults || []);
+        const totalCount = (data.results?.length || 0) + (data.accountResults?.length || 0);
+        toast({ title: "Search Complete", description: `Found ${totalCount} results` });
+      } else if (data.searchType === 'account') {
+        setAccountSearchResults(data.results || []);
+        toast({ title: "Search Complete", description: `Found ${data.results?.length || 0} accounts` });
+      } else {
+        setSearchResults(data.results || []);
+        toast({ title: "Search Complete", description: `Found ${data.results?.length || 0} posts` });
+      }
     } catch (error) {
-      console.error('Error searching Instagram:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to search Instagram content",
-      });
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to search" });
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // Content Ideas functions
+  const fetchContentIdeas = async () => {
+    try {
+      const response = await fetch('/api/content-ideas', { credentials: 'include' });
+      if (response.ok) setContentIdeas(await response.json());
+    } catch (error) { console.error('Error fetching content ideas:', error); }
+  };
+
+  const saveAsIdea = async (post: any) => {
+    try {
+      const response = await fetch('/api/content-ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceUrl: post.permalink || '',
+          sourceAccountName: post.username || '',
+          sourceCaption: post.caption || '',
+          sourceImageUrl: post.imageUrl || '',
+          sourceLikes: post.likes || 0,
+          sourceComments: post.comments || 0,
+          tags: post.hashtags || [],
+        }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to save idea');
+      toast({ title: "Saved", description: "Post saved to your content ideas" });
+      fetchContentIdeas();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to save idea" });
+    }
+  };
+
+  const deleteIdea = async (id: string) => {
+    try {
+      await fetch(`/api/content-ideas/${id}`, { method: 'DELETE', credentials: 'include' });
+      setContentIdeas(contentIdeas.filter(i => i.id !== id));
+      toast({ title: "Deleted", description: "Content idea removed" });
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to delete idea" }); }
+  };
+
+  const updateIdeaStatus = async (id: string, status: string) => {
+    try {
+      const response = await fetch(`/api/content-ideas/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+        credentials: 'include',
+      });
+      if (response.ok) {
+        setContentIdeas(contentIdeas.map(i => i.id === id ? { ...i, status } : i));
+      }
+    } catch { /* silent */ }
+  };
+
+  // Tracked Hashtags functions
+  const fetchTrackedHashtags = async () => {
+    try {
+      const response = await fetch('/api/discovery/tracked-hashtags', { credentials: 'include' });
+      if (response.ok) setTrackedHashtags(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const trackHashtag = async (hashtag: string) => {
+    try {
+      const response = await fetch('/api/discovery/tracked-hashtags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hashtag }),
+        credentials: 'include',
+      });
+      if (response.status === 409) { toast({ title: "Already tracked", description: `#${hashtag.replace(/^#/, '')} is already in your list` }); return; }
+      if (!response.ok) throw new Error('Failed to track hashtag');
+      toast({ title: "Tracked", description: `Now tracking #${hashtag.replace(/^#/, '')}` });
+      fetchTrackedHashtags();
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to track hashtag" }); }
+  };
+
+  const untrackHashtag = async (id: string) => {
+    try {
+      await fetch('/api/discovery/tracked-hashtags', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+        credentials: 'include',
+      });
+      setTrackedHashtags(trackedHashtags.filter(h => h.id !== id));
+    } catch { /* silent */ }
+  };
+
+  // Tracked Competitors functions
+  const fetchTrackedCompetitors = async () => {
+    try {
+      const response = await fetch('/api/discovery/tracked-competitors', { credentials: 'include' });
+      if (response.ok) setTrackedCompetitors(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const trackCompetitor = async (username: string) => {
+    try {
+      const response = await fetch('/api/discovery/tracked-competitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+        credentials: 'include',
+      });
+      if (response.status === 409) { toast({ title: "Already tracked", description: `@${username.replace(/^@/, '')} is already in your list` }); return; }
+      if (!response.ok) throw new Error('Failed to track competitor');
+      toast({ title: "Tracked", description: `Now tracking @${username.replace(/^@/, '')}` });
+      fetchTrackedCompetitors();
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to track competitor" }); }
+  };
+
+  const untrackCompetitor = async (id: string) => {
+    try {
+      await fetch('/api/discovery/tracked-competitors', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+        credentials: 'include',
+      });
+      setTrackedCompetitors(trackedCompetitors.filter(c => c.id !== id));
+    } catch { /* silent */ }
+  };
+
+  const refreshCompetitor = async (competitorId: string) => {
+    try {
+      const response = await fetch('/api/discovery/refresh-competitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ competitorId }),
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setTrackedCompetitors(trackedCompetitors.map(c => c.id === competitorId ? updated : c));
+        toast({ title: "Updated", description: "Competitor data refreshed" });
+      }
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to refresh competitor" }); }
+  };
+
+  // AI Recommendations functions
+  const getRecommendations = async (type: 'general' | 'hashtag_suggestions' = 'general') => {
+    setIsLoadingRecommendations(true);
+    setRecommendations(null);
+    try {
+      const response = await fetch('/api/ai/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to get recommendations');
+      }
+      const data = await response.json();
+      setRecommendations(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to get recommendations" });
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
+  const reviewCaption = async (caption: string) => {
+    setIsReviewingCaption(true);
+    setCaptionReview(null);
+    try {
+      const response = await fetch('/api/ai/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'caption_review', caption }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to review caption');
+      }
+      const data = await response.json();
+      setCaptionReview(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to review caption" });
+    } finally {
+      setIsReviewingCaption(false);
+    }
+  };
+
+  // Outreach functions
+  const fetchContacts = async (status?: string, search?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (search) params.set('search', search);
+      const response = await fetch(`/api/outreach/contacts?${params}`, { credentials: 'include' });
+      if (response.ok) setContacts(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const fetchOutreachStats = async () => {
+    try {
+      const response = await fetch('/api/outreach/stats', { credentials: 'include' });
+      if (response.ok) setOutreachStats(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const fetchOutreachCriteria = async () => {
+    try {
+      const response = await fetch('/api/outreach/criteria', { credentials: 'include' });
+      if (response.ok) setOutreachCriteria(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const addContact = async () => {
+    if (!newContact.igUsername.trim()) { toast({ variant: "destructive", title: "Error", description: "Username is required" }); return; }
+    try {
+      const response = await fetch('/api/outreach/contacts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newContact), credentials: 'include',
+      });
+      if (response.status === 409) { toast({ title: "Exists", description: "Contact already in your list" }); return; }
+      if (!response.ok) throw new Error('Failed to add contact');
+      toast({ title: "Added", description: `@${newContact.igUsername.replace(/^@/, '')} added to contacts` });
+      setNewContact({ igUsername: '', displayName: '', niche: '', location: '', notes: '' });
+      setIsAddingContact(false);
+      fetchContacts(contactFilter, contactSearch);
+      fetchOutreachStats();
+    } catch { toast({ variant: "destructive", title: "Error", description: "Failed to add contact" }); }
+  };
+
+  const updateContactStatus = async (contactId: string, status: string) => {
+    try {
+      const response = await fetch(`/api/outreach/contacts/${contactId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }), credentials: 'include',
+      });
+      if (response.ok) {
+        setContacts(contacts.map(c => c.id === contactId ? { ...c, status } : c));
+        fetchOutreachStats();
+      }
+    } catch { /* silent */ }
+  };
+
+  const deleteContact = async (contactId: string) => {
+    try {
+      await fetch(`/api/outreach/contacts/${contactId}`, { method: 'DELETE', credentials: 'include' });
+      setContacts(contacts.filter(c => c.id !== contactId));
+      if (selectedContact?.id === contactId) setSelectedContact(null);
+      fetchOutreachStats();
+    } catch { /* silent */ }
+  };
+
+  const generateOutreachMessage = async (contactId: string) => {
+    setIsGeneratingMessage(true);
+    try {
+      const response = await fetch('/api/outreach/generate-message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId, templateType: messageTemplateType, customInstructions: customMessageInstructions || undefined }),
+        credentials: 'include',
+      });
+      if (!response.ok) { const d = await response.json(); throw new Error(d.error || 'Failed'); }
+      const data = await response.json();
+      // Auto-save as draft
+      await fetch('/api/outreach/messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId, messageBody: data.messageBody, templateName: data.templateType, status: 'DRAFT' }),
+        credentials: 'include',
+      });
+      toast({ title: "Message Generated", description: "AI-generated message saved as draft" });
+      fetchContactMessages(contactId);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to generate message" });
+    } finally { setIsGeneratingMessage(false); }
+  };
+
+  const fetchContactMessages = async (contactId: string) => {
+    try {
+      const response = await fetch(`/api/outreach/messages?contactId=${contactId}`, { credentials: 'include' });
+      if (response.ok) setOutreachMessages(await response.json());
+    } catch { /* silent */ }
+  };
+
+  const updateMessageStatus = async (messageId: string, status: string) => {
+    try {
+      const response = await fetch('/api/outreach/messages', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: messageId, status }), credentials: 'include',
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setOutreachMessages(outreachMessages.map(m => m.id === messageId ? updated : m));
+        fetchContacts(contactFilter, contactSearch);
+        fetchOutreachStats();
+      }
+    } catch { /* silent */ }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    try {
+      await fetch('/api/outreach/messages', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: messageId }), credentials: 'include',
+      });
+      setOutreachMessages(outreachMessages.filter(m => m.id !== messageId));
+    } catch { /* silent */ }
   };
 
   const handleGenerateInspiredContent = async (post: any) => {
@@ -646,6 +1023,133 @@ export default function Dashboard() {
     }
   };
 
+  // Schedule a post
+  const handleSchedulePost = async () => {
+    if (!schedulingPostId || !scheduleDate) {
+      toast({ variant: "destructive", title: "Error", description: "Please select a date and time" });
+      return;
+    }
+
+    const scheduledDateTime = new Date(scheduleDate);
+    scheduledDateTime.setHours(scheduleHour, scheduleMinute, 0, 0);
+
+    if (scheduledDateTime <= new Date()) {
+      toast({ variant: "destructive", title: "Error", description: "Scheduled time must be in the future" });
+      return;
+    }
+
+    try {
+      const body: any = {
+        status: 'SCHEDULED',
+        scheduledFor: scheduledDateTime.toISOString(),
+      };
+      if (scheduleAccountId) {
+        body.socialMediaAccountId = scheduleAccountId;
+      }
+
+      const response = await fetch(`/api/content-posts/${schedulingPostId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Failed to schedule post');
+
+      setPosts(posts.map(p =>
+        p.id === schedulingPostId
+          ? { ...p, status: 'SCHEDULED' as const, scheduledFor: scheduledDateTime.toISOString(), socialMediaAccountId: scheduleAccountId || p.socialMediaAccountId }
+          : p
+      ));
+
+      toast({ title: "Success", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+      setIsScheduling(false);
+      setSchedulingPostId(null);
+      setScheduleDate(undefined);
+      setScheduleHour(12);
+      setScheduleMinute(0);
+      setScheduleAccountId("");
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to schedule post" });
+    }
+  };
+
+  // Fetch post insights
+  const fetchPostInsights = async () => {
+    try {
+      const response = await fetch('/api/insights/post-insights', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setPostInsights(data);
+      }
+    } catch (error) {
+      console.error('Error fetching post insights:', error);
+    }
+  };
+
+  // Fetch account insights
+  const fetchAccountInsights = async (accountId: string) => {
+    try {
+      const response = await fetch(`/api/insights/account-insights?accountId=${accountId}`, { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setAccountInsights(data);
+      }
+    } catch (error) {
+      console.error('Error fetching account insights:', error);
+    }
+  };
+
+  // Manually trigger insights refresh for a post
+  const refreshPostInsights = async (postId: string) => {
+    setIsFetchingInsights(true);
+    try {
+      const response = await fetch('/api/insights/post-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch insights');
+      }
+
+      toast({ title: "Success", description: "Post insights updated" });
+      fetchPostInsights();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to fetch insights" });
+    } finally {
+      setIsFetchingInsights(false);
+    }
+  };
+
+  // Manually trigger insights refresh for an account
+  const refreshAccountInsights = async (accountId: string) => {
+    setIsFetchingInsights(true);
+    try {
+      const response = await fetch('/api/insights/account-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch insights');
+      }
+
+      toast({ title: "Success", description: "Account insights updated" });
+      fetchAccountInsights(accountId);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to fetch insights" });
+    } finally {
+      setIsFetchingInsights(false);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-background flex-col">
@@ -680,6 +1184,7 @@ export default function Dashboard() {
               <TabsTrigger value="accounts">Social Media Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
               <TabsTrigger value="insights">Instagram Insights</TabsTrigger>
+              <TabsTrigger value="outreach">Outreach</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
               <TabsTrigger value="logging">Logging</TabsTrigger>
             </TabsList>
@@ -1001,6 +1506,14 @@ export default function Dashboard() {
                               placeholder="Write your post caption here..."
                               className="min-h-[100px]"
                             />
+                            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                              <span className={newPost.caption.length > 2200 ? 'text-destructive font-medium' : ''}>
+                                {newPost.caption.length}/2,200 characters
+                              </span>
+                              <span className={(newPost.caption.match(/#\w+/g) || []).length > 30 ? 'text-destructive font-medium' : ''}>
+                                {(newPost.caption.match(/#\w+/g) || []).length}/30 hashtags
+                              </span>
+                            </div>
                             <Button 
                               variant="outline" 
                               className="mt-2"
@@ -1172,8 +1685,46 @@ export default function Dashboard() {
                           )}
                         </div>
                       </ScrollArea>
+                      {/* AI Caption Review */}
+                      {captionReview && (
+                        <div className="rounded-lg border bg-muted/50 p-3 mt-2">
+                          <h4 className="font-medium text-sm mb-1">AI Review</h4>
+                          <p className="text-sm text-muted-foreground mb-2">{captionReview.recommendations}</p>
+                          {captionReview.suggestedCaption && (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium mb-1">Suggested caption:</p>
+                              <p className="text-sm bg-background rounded p-2 border">{captionReview.suggestedCaption}</p>
+                              <Button variant="outline" size="sm" className="mt-2" onClick={() => {
+                                setNewPost({ ...newPost, caption: captionReview.suggestedCaption });
+                                setCaptionReview(null);
+                              }}>
+                                Use Suggested Caption
+                              </Button>
+                            </div>
+                          )}
+                          {captionReview.suggestedHashtags?.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium mb-1">Suggested hashtags:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {captionReview.suggestedHashtags.map((tag: string, i: number) => (
+                                  <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded cursor-pointer" onClick={() => {
+                                    setNewPost({ ...newPost, caption: newPost.caption + ' ' + tag });
+                                  }}>{tag}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <DialogFooter className="mt-4">
                         <Button variant="outline" onClick={() => setIsCreatingPost(false)}>Cancel</Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => reviewCaption(newPost.caption)}
+                          disabled={isReviewingCaption || !newPost.caption}
+                        >
+                          {isReviewingCaption ? <><RefreshCw className="h-4 w-4 animate-spin mr-1" />Reviewing...</> : "AI Review"}
+                        </Button>
                         <Button variant="outline" onClick={() => handleCreatePost(true)}>Save to Drafts</Button>
                         <Button onClick={() => handleCreatePost(false)}>Create Post</Button>
                       </DialogFooter>
@@ -1227,13 +1778,19 @@ export default function Dashboard() {
                             {new Date(post.scheduledFor).toLocaleString()}
                           </CardDescription>
                         )}
+                        {post.status === 'FAILED' && post.errorMessage && (
+                          <CardDescription className="text-destructive text-xs mt-1">
+                            Error: {post.errorMessage}
+                            {post.retryCount ? ` (${post.retryCount} retries)` : ''}
+                          </CardDescription>
+                        )}
                       </CardHeader>
                       <CardContent>
                         {post.imageUrl && (
                           <div className="aspect-square relative mb-4 rounded-md overflow-hidden">
-                            <img 
-                              src={post.imageUrl} 
-                              alt="Post image" 
+                            <img
+                              src={post.imageUrl}
+                              alt="Post image"
                               className="object-cover w-full h-full"
                               onError={(e) => {
                                 // If image fails to load, show placeholder
@@ -1373,19 +1930,19 @@ export default function Dashboard() {
                                         }
                                         
                                         const result = await response.json();
-                                        
+
                                         // Update the post in the local state
-                                        setPosts(posts.map(p => 
-                                          p.id === post.id 
-                                            ? {...p, status: 'PUBLISHED', socialMediaAccountId: accountId} 
+                                        setPosts(posts.map(p =>
+                                          p.id === post.id
+                                            ? {...p, status: 'PUBLISHED' as const, socialMediaAccountId: accountId, igMediaId: result.postResult?.mediaId || null}
                                             : p
                                         ));
-                                        
+
                                         toast({
-                                          title: "Success",
+                                          title: "Posted Successfully",
                                           description: result.message || "Content posted successfully",
                                         });
-                                        
+
                                         // Close the dialog
                                         const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
                                         if (closeButton) {
@@ -1395,14 +1952,14 @@ export default function Dashboard() {
                                         console.error('Error posting to social media:', error);
                                         toast({
                                           variant: "destructive",
-                                          title: "Error",
+                                          title: "Posting Failed",
                                           description: error instanceof Error ? error.message : "Failed to post to social media",
                                         });
-                                        
+
                                         // Update the post status to FAILED in the local state
-                                        setPosts(posts.map(p => 
-                                          p.id === post.id 
-                                            ? {...p, status: 'FAILED'} 
+                                        setPosts(posts.map(p =>
+                                          p.id === post.id
+                                            ? {...p, status: 'FAILED' as const}
                                             : p
                                         ));
                                       }
@@ -1413,17 +1970,17 @@ export default function Dashboard() {
                                 </DialogFooter>
                               </DialogContent>
                             </Dialog>
-                            <Button 
-                              variant="outline" 
-                              className="flex-1" 
+                            <Button
+                              variant="outline"
+                              className="flex-1"
                               size="sm"
                               onClick={() => {
-                                // Open a dialog to schedule the post
-                                // This would be implemented in a real app
-                                toast({
-                                  title: "Feature coming soon",
-                                  description: "Schedule post functionality is under development",
-                                });
+                                setSchedulingPostId(post.id);
+                                setScheduleAccountId(post.socialMediaAccountId || "");
+                                setScheduleDate(undefined);
+                                setScheduleHour(12);
+                                setScheduleMinute(0);
+                                setIsScheduling(true);
                               }}
                             >
                               Schedule
@@ -1663,19 +2220,19 @@ export default function Dashboard() {
                                           }
                                           
                                           const result = await response.json();
-                                          
+
                                           // Update the post in the local state
-                                          setPosts(posts.map(p => 
-                                            p.id === post.id 
-                                              ? {...p, status: 'PUBLISHED', socialMediaAccountId: accountId} 
+                                          setPosts(posts.map(p =>
+                                            p.id === post.id
+                                              ? {...p, status: 'PUBLISHED' as const, socialMediaAccountId: accountId, igMediaId: result.postResult?.mediaId || null}
                                               : p
                                           ));
-                                          
+
                                           toast({
-                                            title: "Success",
+                                            title: "Posted Successfully",
                                             description: result.message || "Content posted successfully",
                                           });
-                                          
+
                                           // Close the dialog
                                           const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
                                           if (closeButton) {
@@ -1685,14 +2242,14 @@ export default function Dashboard() {
                                           console.error('Error posting to social media:', error);
                                           toast({
                                             variant: "destructive",
-                                            title: "Error",
+                                            title: "Posting Failed",
                                             description: error instanceof Error ? error.message : "Failed to post to social media",
                                           });
-                                          
+
                                           // Update the post status to FAILED in the local state
-                                          setPosts(posts.map(p => 
-                                            p.id === post.id 
-                                              ? {...p, status: 'FAILED'} 
+                                          setPosts(posts.map(p =>
+                                            p.id === post.id
+                                              ? {...p, status: 'FAILED' as const}
                                               : p
                                           ));
                                         }
@@ -1708,16 +2265,12 @@ export default function Dashboard() {
                                 className="flex-1" 
                                 size="sm"
                                 onClick={() => {
-                                  // Open scheduling dialog
-                                  setNewPost({
-                                    caption: post.caption,
-                                    imageUrl: post.imageUrl || "",
-                                    imageFile: null,
-                                    socialMediaAccountId: post.socialMediaAccountId || "",
-                                    contentType: post.contentType,
-                                    scheduledFor: new Date().toISOString() // Set default to current time
-                                  });
-                                  setIsCreatingPost(true);
+                                  setSchedulingPostId(post.id);
+                                  setScheduleAccountId(post.socialMediaAccountId || "");
+                                  setScheduleDate(undefined);
+                                  setScheduleHour(12);
+                                  setScheduleMinute(0);
+                                  setIsScheduling(true);
                                 }}
                               >
                                 Schedule
@@ -2113,49 +2666,265 @@ export default function Dashboard() {
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold">Instagram Insights</h2>
                 <div className="text-sm text-muted-foreground">
-                  Discover high-performing content for inspiration
+                  Track performance &amp; discover high-performing content
                 </div>
               </div>
-              
+
+              {/* Account Insights Section */}
+              {accounts.filter(a => a.accountType === 'INSTAGRAM').length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span className="flex items-center">
+                        <Instagram className="h-5 w-5 mr-2 text-pink-500" />
+                        Account Performance
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={selectedInsightsAccountId}
+                          onChange={(e) => {
+                            setSelectedInsightsAccountId(e.target.value);
+                            if (e.target.value) fetchAccountInsights(e.target.value);
+                          }}
+                        >
+                          <option value="">Select account</option>
+                          {accounts.filter(a => a.accountType === 'INSTAGRAM').map((account) => (
+                            <option key={account.id} value={account.id}>
+                              @{account.username}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedInsightsAccountId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => refreshAccountInsights(selectedInsightsAccountId)}
+                            disabled={isFetchingInsights}
+                          >
+                            {isFetchingInsights ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          </Button>
+                        )}
+                      </div>
+                    </CardTitle>
+                    <CardDescription>
+                      View follower counts, profile views, and engagement metrics for your account.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {!selectedInsightsAccountId ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">Select an account above to view insights.</p>
+                    ) : accountInsights.length === 0 ? (
+                      <div className="text-center py-4">
+                        <p className="text-sm text-muted-foreground mb-2">No insights data yet.</p>
+                        <Button variant="outline" size="sm" onClick={() => refreshAccountInsights(selectedInsightsAccountId)} disabled={isFetchingInsights}>
+                          {isFetchingInsights ? "Fetching..." : "Fetch Insights Now"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        {(() => {
+                          const latest = accountInsights[0];
+                          const prev = accountInsights.length > 1 ? accountInsights[1] : null;
+                          const metrics = [
+                            { label: 'Followers', value: latest.followers, prev: prev?.followers },
+                            { label: 'Following', value: latest.following, prev: prev?.following },
+                            { label: 'Posts', value: latest.mediaCount, prev: prev?.mediaCount },
+                            { label: 'Profile Views', value: latest.profileViews, prev: prev?.profileViews },
+                            { label: 'Website Clicks', value: latest.websiteClicks, prev: prev?.websiteClicks },
+                          ];
+                          return metrics.map((m) => {
+                            const diff = m.prev !== undefined && m.prev !== null ? m.value - m.prev : null;
+                            return (
+                              <div key={m.label} className="rounded-lg border p-3 text-center">
+                                <div className="text-2xl font-bold">{m.value.toLocaleString()}</div>
+                                <div className="text-xs text-muted-foreground">{m.label}</div>
+                                {diff !== null && diff !== 0 && (
+                                  <div className={`text-xs mt-1 ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {diff > 0 ? '+' : ''}{diff.toLocaleString()}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    )}
+                    {accountInsights.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Last updated: {new Date(accountInsights[0].fetchedAt).toLocaleString()}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Post Performance Section */}
+              {posts.filter(p => p.status === 'PUBLISHED').length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Post Performance</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchPostInsights}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" /> Load Insights
+                      </Button>
+                    </CardTitle>
+                    <CardDescription>
+                      View engagement metrics for your published posts. Click refresh on individual posts to pull latest data from Instagram.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {posts.filter(p => p.status === 'PUBLISHED').map((post) => {
+                        const insight = postInsights.find(i => i.postId === post.id);
+                        return (
+                          <div key={post.id} className="rounded-lg border p-4">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{post.caption.substring(0, 60)}...</p>
+                                {post.socialMediaAccount && (
+                                  <p className="text-xs text-muted-foreground">@{post.socialMediaAccount.username}</p>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => refreshPostInsights(post.id)}
+                                disabled={isFetchingInsights}
+                              >
+                                <RefreshCw className={`h-3 w-3 ${isFetchingInsights ? 'animate-spin' : ''}`} />
+                              </Button>
+                            </div>
+                            {insight ? (
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                <div>
+                                  <div className="text-lg font-bold">{insight.reach.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Reach</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.likes.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Likes</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.comments.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Comments</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.shares.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Shares</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.saves.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Saves</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-bold">{insight.engagement.toFixed(1)}%</div>
+                                  <div className="text-xs text-muted-foreground">Engagement</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground text-center py-2">
+                                No insights yet. Click refresh to fetch from Instagram.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* AI Recommendations Section */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>AI Content Recommendations</span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => getRecommendations('general')}
+                        disabled={isLoadingRecommendations}
+                      >
+                        {isLoadingRecommendations ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Strategy Tips
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => getRecommendations('hashtag_suggestions')}
+                        disabled={isLoadingRecommendations}
+                      >
+                        Hashtag Ideas
+                      </Button>
+                    </div>
+                  </CardTitle>
+                  <CardDescription>
+                    Get AI-powered suggestions based on your performance data. The more published posts with insights, the better the recommendations.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {!recommendations && !isLoadingRecommendations && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Click "Strategy Tips" or "Hashtag Ideas" to get personalized recommendations based on your content performance.
+                    </p>
+                  )}
+                  {isLoadingRecommendations && (
+                    <div className="flex items-center justify-center py-8">
+                      <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                      <span className="text-sm text-muted-foreground">Analyzing your content performance...</span>
+                    </div>
+                  )}
+                  {recommendations && (
+                    <div className="space-y-4">
+                      <div className="prose prose-sm max-w-none">
+                        <div className="whitespace-pre-wrap text-sm">{recommendations.recommendations}</div>
+                      </div>
+                      {recommendations.actionItems?.length > 0 && (
+                        <div className="rounded-lg bg-muted p-4">
+                          <h4 className="font-medium text-sm mb-2">Action Items</h4>
+                          <ul className="space-y-1">
+                            {recommendations.actionItems.map((item: string, i: number) => (
+                              <li key={i} className="text-sm flex items-start gap-2">
+                                <span className="text-green-600 mt-0.5">-</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {recommendations.suggestedHashtags && (
+                        <div className="flex flex-wrap gap-1">
+                          {recommendations.suggestedHashtags.map((tag: string, i: number) => (
+                            <span key={i} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-blue-50 text-blue-700 cursor-pointer" onClick={() => trackHashtag(tag)}>
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Search Section */}
               <Card className="mb-6">
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <Instagram className="h-5 w-5 mr-2 text-pink-500" />
-                    Search Instagram Content
+                    Search Instagram
                   </CardTitle>
                   <CardDescription>
-                    Search for trending posts, hashtags, or accounts to find inspiration for your content.
+                    Search for hashtags or look up accounts to find high-performing content.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Search for posts, hashtags, or usernames..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleInstagramSearch();
-                        }
-                      }}
-                      className="flex-1"
-                    />
-                    <Button 
-                      onClick={handleInstagramSearch}
-                      disabled={isSearching}
-                    >
-                      {isSearching ? (
-                        <>
-                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                          Searching...
-                        </>
-                      ) : (
-                        "Search"
-                      )}
-                    </Button>
-                  </div>
-                  <div className="mt-3">
+                  <div className="mb-3">
                     <Label className="text-xs text-muted-foreground mb-2 block">Search in:</Label>
                     <ToggleGroup
                       type="multiple"
@@ -2174,61 +2943,45 @@ export default function Dashboard() {
                       <ToggleGroupItem value="places" className="text-xs">Places</ToggleGroupItem>
                     </ToggleGroup>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Try searching for topics like "travel", "food", "fitness", or specific hashtags like "#photography"
-                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder={searchFilters.includes('accounts') && searchFilters.length === 1 ? 'Look up an account (e.g. natgeo)...' : 'Search hashtags, topics, accounts...'}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyPress={(e) => { if (e.key === 'Enter') handleInstagramSearch(); }}
+                      className="flex-1"
+                    />
+                    <Button onClick={handleInstagramSearch} disabled={isSearching}>
+                      {isSearching ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Searching...</> : "Search"}
+                    </Button>
+                  </div>
+                  {searchFilters.some(f => ['for_you', 'tags', 'audio', 'places'].includes(f)) && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Note: Instagram limits hashtag searches to 30 unique hashtags per 7 days per account.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Search Results */}
+              {/* Hashtag Search Results */}
               {searchResults.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="text-lg font-semibold mb-4">Search Results ({searchResults.length} posts found)</h3>
+                  <h3 className="text-lg font-semibold mb-4">Hashtag Results ({searchResults.length} posts)</h3>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {searchResults.map((post) => (
-                      <Card key={post.id} className="cursor-pointer hover:shadow-md transition-shadow">
-                        <CardHeader className="pb-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
-                                <span className="text-white text-xs font-bold">
-                                  {post.username.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-sm">@{post.username}</p>
-                                <div className="flex items-center gap-1">
-                                  <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium ${
-                                    post.accountType === 'business' ? 'bg-blue-100 text-blue-800' :
-                                    post.accountType === 'creator' ? 'bg-purple-100 text-purple-800' :
-                                    'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {post.accountType}
-                                  </span>
-                                  {post.verified && (
-                                    <svg className="w-3 h-3 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                    </svg>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right text-xs text-muted-foreground">
-                              <div>{post.likes.toLocaleString()} likes</div>
-                              <div>{post.comments.toLocaleString()} comments</div>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="pt-0">
+                    {searchResults.map((post: any) => (
+                      <Card key={post.id}>
+                        <CardContent className="pt-4">
                           {post.imageUrl && (
                             <div className="aspect-square relative mb-3 rounded-md overflow-hidden">
-                              <img 
-                                src={post.imageUrl} 
-                                alt="Instagram post" 
-                                className="object-cover w-full h-full"
-                              />
+                              <img src={post.imageUrl} alt="Post" className="object-cover w-full h-full" />
                             </div>
                           )}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs text-muted-foreground">
+                              {post.likes.toLocaleString()} likes / {post.comments.toLocaleString()} comments
+                            </div>
+                            {post.timestamp && <div className="text-xs text-muted-foreground">{new Date(post.timestamp).toLocaleDateString()}</div>}
+                          </div>
                           <p className="text-sm line-clamp-3 mb-2">{post.caption}</p>
                           {post.audioName && (
                             <div className="flex items-center gap-1 mb-2 text-xs text-muted-foreground">
@@ -2243,26 +2996,18 @@ export default function Dashboard() {
                             </div>
                           )}
                           <div className="flex flex-wrap gap-1 mb-3">
-                            {post.hashtags.slice(0, 3).map((hashtag: string, index: number) => (
-                              <span key={index} className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700">
-                                {hashtag}
+                            {(post.hashtags || []).slice(0, 4).map((tag: string, i: number) => (
+                              <span key={i} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-blue-50 text-blue-700 cursor-pointer" onClick={() => trackHashtag(tag)}>
+                                {tag}
                               </span>
                             ))}
-                            {post.hashtags.length > 3 && (
-                              <span className="text-xs text-muted-foreground">
-                                +{post.hashtags.length - 3} more
-                              </span>
-                            )}
                           </div>
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-muted-foreground">
-                              {new Date(post.timestamp).toLocaleDateString()}
-                            </div>
-                            <Button 
-                              size="sm" 
-                              onClick={() => setSelectedPost(post)}
-                            >
-                              Use as Inspiration
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => saveAsIdea(post)}>
+                              Save Idea
+                            </Button>
+                            <Button size="sm" className="flex-1" onClick={() => setSelectedPost(post)}>
+                              Create Content
                             </Button>
                           </div>
                         </CardContent>
@@ -2272,53 +3017,247 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* No Results Message */}
-              {searchQuery && searchResults.length === 0 && !isSearching && (
-                <Card>
+              {/* Account Search Results */}
+              {accountSearchResults.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-4">Account Results</h3>
+                  {accountSearchResults.map((account: any) => (
+                    <Card key={account.id} className="mb-4">
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {account.profilePicture ? (
+                              <img src={account.profilePicture} alt={account.username} className="w-12 h-12 rounded-full" />
+                            ) : (
+                              <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
+                                <span className="text-white font-bold">{(account.username || '?').charAt(0).toUpperCase()}</span>
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-semibold">@{account.username}</p>
+                              {account.name && <p className="text-sm text-muted-foreground">{account.name}</p>}
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm" onClick={() => trackCompetitor(account.username)}>
+                            Track Account
+                          </Button>
+                        </div>
+                        {account.bio && <p className="text-sm mt-2">{account.bio}</p>}
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-3 gap-4 text-center mb-4">
+                          <div>
+                            <div className="text-lg font-bold">{(account.followers || 0).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Followers</div>
+                          </div>
+                          <div>
+                            <div className="text-lg font-bold">{(account.following || 0).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Following</div>
+                          </div>
+                          <div>
+                            <div className="text-lg font-bold">{(account.mediaCount || 0).toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">Posts</div>
+                          </div>
+                        </div>
+                        {account.recentPosts?.length > 0 && (
+                          <>
+                            <h4 className="text-sm font-medium mb-2">Recent Posts</h4>
+                            <div className="grid grid-cols-3 gap-2">
+                              {account.recentPosts.map((post: any) => (
+                                <div key={post.id} className="relative group cursor-pointer" onClick={() => saveAsIdea({ ...post, username: account.username })}>
+                                  {post.imageUrl ? (
+                                    <img src={post.imageUrl} alt="" className="aspect-square object-cover rounded-md w-full" />
+                                  ) : (
+                                    <div className="aspect-square bg-muted rounded-md flex items-center justify-center">
+                                      <Image className="h-6 w-6 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center text-white text-xs">
+                                    <div className="text-center">
+                                      <div>{(post.likes || 0).toLocaleString()} likes</div>
+                                      <div className="mt-1">Click to save</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* No Results */}
+              {searchQuery && searchResults.length === 0 && accountSearchResults.length === 0 && !isSearching && (
+                <Card className="mb-6">
                   <CardContent className="text-center py-8">
                     <Instagram className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-medium mb-2">No posts found</h3>
+                    <h3 className="text-lg font-medium mb-2">No results found</h3>
                     <p className="text-muted-foreground mb-4">
-                      Try searching with different keywords or hashtags.
+                      {searchFilters.length === 1 && searchFilters[0] === 'accounts' ? 'Account must be a Business or Creator account to be discoverable.' : 'Try a different search term or adjust your filters.'}
                     </p>
-                    <Button variant="outline" onClick={() => {
-                      setSearchQuery("");
-                      setSearchResults([]);
-                    }}>
-                      Clear Search
-                    </Button>
+                    <Button variant="outline" onClick={() => { setSearchQuery(""); setSearchResults([]); setAccountSearchResults([]); }}>Clear Search</Button>
                   </CardContent>
                 </Card>
               )}
 
-              {/* Getting Started Message */}
-              {!searchQuery && searchResults.length === 0 && (
-                <Card>
-                  <CardContent className="text-center py-8">
-                    <Instagram className="h-12 w-12 mx-auto mb-4 text-pink-500" />
-                    <h3 className="text-lg font-medium mb-2">Discover Inspiring Content</h3>
-                    <p className="text-muted-foreground mb-4">
-                      Search for high-performing Instagram posts to inspire your content creation. 
-                      Find trending hashtags, successful post formats, and engaging captions.
-                    </p>
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      {['travel', 'food', 'fitness', 'photography', 'fashion'].map((suggestion) => (
-                        <Button 
-                          key={suggestion}
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setSearchQuery(suggestion);
-                            handleInstagramSearch();
-                          }}
-                        >
-                          {suggestion}
-                        </Button>
+              {/* Saved Content Ideas */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Saved Content Ideas</span>
+                    <span className="text-sm font-normal text-muted-foreground">{contentIdeas.length} ideas</span>
+                  </CardTitle>
+                  <CardDescription>Posts you've saved as inspiration for your own content.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {contentIdeas.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">No saved ideas yet. Search for content and click "Save Idea" to start building your library.</p>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {contentIdeas.map((idea: any) => (
+                        <div key={idea.id} className="rounded-lg border p-3">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1 min-w-0">
+                              {idea.sourceAccountName && <p className="text-xs text-muted-foreground">@{idea.sourceAccountName}</p>}
+                              <p className="text-sm line-clamp-2">{idea.sourceCaption || idea.notes || 'No caption'}</p>
+                            </div>
+                            <select
+                              className="h-7 rounded border text-xs ml-2"
+                              value={idea.status}
+                              onChange={(e) => updateIdeaStatus(idea.id, e.target.value)}
+                            >
+                              <option value="NEW">New</option>
+                              <option value="IN_PROGRESS">In Progress</option>
+                              <option value="USED">Used</option>
+                              <option value="ARCHIVED">Archived</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="flex gap-1">
+                              {(idea.tags || []).slice(0, 3).map((tag: string, i: number) => (
+                                <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{tag}</span>
+                              ))}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                                setSelectedPost({
+                                  username: idea.sourceAccountName || '',
+                                  caption: idea.sourceCaption || '',
+                                  imageUrl: idea.sourceImageUrl || '',
+                                  likes: idea.sourceLikes || 0,
+                                  comments: idea.sourceComments || 0,
+                                  hashtags: idea.tags || [],
+                                });
+                              }}>
+                                Create
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => deleteIdea(idea.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
                       ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Tracked Hashtags & Competitors */}
+              <div className="grid gap-6 md:grid-cols-2 mb-6">
+                {/* Tracked Hashtags */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tracked Hashtags</CardTitle>
+                    <CardDescription>Hashtags you're monitoring. Click a hashtag from search results to track it.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {trackedHashtags.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-2">No tracked hashtags yet.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {trackedHashtags.map((th: any) => (
+                          <span key={th.id} className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm bg-blue-50 text-blue-700">
+                            #{th.hashtag}
+                            {th.postCount && <span className="text-xs text-blue-500">({th.postCount.toLocaleString()})</span>}
+                            <button
+                              className="ml-1 text-blue-400 hover:text-red-500"
+                              onClick={() => untrackHashtag(th.id)}
+                            >
+                              x
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <Input
+                        placeholder="Add hashtag..."
+                        className="h-8 text-sm"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            const input = e.target as HTMLInputElement;
+                            if (input.value.trim()) { trackHashtag(input.value.trim()); input.value = ''; }
+                          }
+                        }}
+                      />
                     </div>
                   </CardContent>
                 </Card>
-              )}
+
+                {/* Tracked Competitors */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tracked Competitors</CardTitle>
+                    <CardDescription>Accounts you're monitoring for content strategy.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {trackedCompetitors.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-2">No tracked competitors yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {trackedCompetitors.map((comp: any) => (
+                          <div key={comp.id} className="flex items-center justify-between rounded-lg border p-2">
+                            <div>
+                              <p className="font-medium text-sm">@{comp.username}</p>
+                              <div className="flex gap-3 text-xs text-muted-foreground">
+                                {comp.followerCount != null && <span>{comp.followerCount.toLocaleString()} followers</span>}
+                                {comp.mediaCount != null && <span>{comp.mediaCount.toLocaleString()} posts</span>}
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => refreshCompetitor(comp.id)}>
+                                <RefreshCw className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { setSearchFilters(['accounts']); setSearchQuery(comp.username); handleInstagramSearch(); }}>
+                                View
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => untrackCompetitor(comp.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <Input
+                        placeholder="Add @username..."
+                        className="h-8 text-sm"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            const input = e.target as HTMLInputElement;
+                            if (input.value.trim()) { trackCompetitor(input.value.trim()); input.value = ''; }
+                          }
+                        }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
               {/* Inspiration Dialog */}
               <Dialog open={!!selectedPost} onOpenChange={() => setSelectedPost(null)}>
@@ -2404,7 +3343,322 @@ export default function Dashboard() {
                 </DialogContent>
               </Dialog>
             </TabsContent>
-            
+
+            <TabsContent value="outreach">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold">Outreach</h2>
+                <Button onClick={() => setIsAddingContact(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Contact
+                </Button>
+              </div>
+
+              {/* Outreach Funnel Stats */}
+              {outreachStats && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                  {[
+                    { label: 'Prospects', value: outreachStats.contactsByStatus?.PROSPECT || 0, color: 'bg-gray-100 text-gray-800' },
+                    { label: 'Contacted', value: outreachStats.contactsByStatus?.CONTACTED || 0, color: 'bg-blue-100 text-blue-800' },
+                    { label: 'Responded', value: outreachStats.contactsByStatus?.RESPONDED || 0, color: 'bg-green-100 text-green-800' },
+                    { label: 'Converted', value: outreachStats.contactsByStatus?.CONVERTED || 0, color: 'bg-purple-100 text-purple-800' },
+                    { label: 'Response Rate', value: outreachStats.responseRate != null ? `${(outreachStats.responseRate * 100).toFixed(0)}%` : 'N/A', color: 'bg-orange-100 text-orange-800' },
+                  ].map(s => (
+                    <div key={s.label} className="rounded-lg border p-3 text-center">
+                      <div className="text-2xl font-bold">{s.value}</div>
+                      <div className={`text-xs inline-flex rounded-full px-2 py-0.5 mt-1 ${s.color}`}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add Contact Dialog */}
+              <Dialog open={isAddingContact} onOpenChange={setIsAddingContact}>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Add Contact</DialogTitle>
+                    <DialogDescription>Add a person to your outreach list.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-3 py-4">
+                    <div className="grid gap-1">
+                      <Label>Instagram Username *</Label>
+                      <Input placeholder="@username" value={newContact.igUsername} onChange={e => setNewContact({ ...newContact, igUsername: e.target.value })} />
+                    </div>
+                    <div className="grid gap-1">
+                      <Label>Display Name</Label>
+                      <Input placeholder="Their name" value={newContact.displayName} onChange={e => setNewContact({ ...newContact, displayName: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-1">
+                        <Label>Niche</Label>
+                        <Input placeholder="e.g. fitness" value={newContact.niche} onChange={e => setNewContact({ ...newContact, niche: e.target.value })} />
+                      </div>
+                      <div className="grid gap-1">
+                        <Label>Location</Label>
+                        <Input placeholder="e.g. NYC" value={newContact.location} onChange={e => setNewContact({ ...newContact, location: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid gap-1">
+                      <Label>Notes</Label>
+                      <Textarea placeholder="Why you want to reach out..." value={newContact.notes} onChange={e => setNewContact({ ...newContact, notes: e.target.value })} className="min-h-[60px]" />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddingContact(false)}>Cancel</Button>
+                    <Button onClick={addContact}>Add Contact</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Contact Filters */}
+              <div className="flex gap-2 mb-4">
+                <Input
+                  placeholder="Search contacts..."
+                  value={contactSearch}
+                  onChange={e => { setContactSearch(e.target.value); fetchContacts(contactFilter, e.target.value); }}
+                  className="max-w-xs"
+                />
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={contactFilter}
+                  onChange={e => { setContactFilter(e.target.value); fetchContacts(e.target.value, contactSearch); }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="PROSPECT">Prospects</option>
+                  <option value="CONTACTED">Contacted</option>
+                  <option value="RESPONDED">Responded</option>
+                  <option value="CONVERTED">Converted</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
+              </div>
+
+              {/* Contact List + Detail View */}
+              <div className="grid gap-6 md:grid-cols-3">
+                {/* Contact List */}
+                <div className="md:col-span-1 space-y-2">
+                  {contacts.length === 0 ? (
+                    <Card>
+                      <CardContent className="text-center py-8">
+                        <p className="text-sm text-muted-foreground mb-2">No contacts yet.</p>
+                        <Button variant="outline" size="sm" onClick={() => setIsAddingContact(true)}>Add your first contact</Button>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    contacts.map((contact: any) => (
+                      <div
+                        key={contact.id}
+                        className={`rounded-lg border p-3 cursor-pointer transition-colors ${selectedContact?.id === contact.id ? 'border-primary bg-muted/50' : 'hover:bg-muted/30'}`}
+                        onClick={() => { setSelectedContact(contact); fetchContactMessages(contact.id); }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-sm">@{contact.igUsername}</p>
+                            {contact.displayName && <p className="text-xs text-muted-foreground">{contact.displayName}</p>}
+                          </div>
+                          <span className={`text-xs rounded-full px-2 py-0.5 ${
+                            contact.status === 'PROSPECT' ? 'bg-gray-100 text-gray-700' :
+                            contact.status === 'CONTACTED' ? 'bg-blue-100 text-blue-700' :
+                            contact.status === 'RESPONDED' ? 'bg-green-100 text-green-700' :
+                            contact.status === 'CONVERTED' ? 'bg-purple-100 text-purple-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {contact.status}
+                          </span>
+                        </div>
+                        <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
+                          {contact.niche && <span>{contact.niche}</span>}
+                          {contact.location && <span>{contact.location}</span>}
+                          {contact._count?.outreachMessages > 0 && <span>{contact._count.outreachMessages} msgs</span>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Contact Detail + Messages */}
+                <div className="md:col-span-2">
+                  {!selectedContact ? (
+                    <Card>
+                      <CardContent className="text-center py-12">
+                        <p className="text-muted-foreground">Select a contact to view details and manage messages.</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Contact Info */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">@{selectedContact.igUsername}</CardTitle>
+                            <div className="flex gap-2">
+                              <select
+                                className="h-8 rounded border text-xs"
+                                value={selectedContact.status}
+                                onChange={e => updateContactStatus(selectedContact.id, e.target.value)}
+                              >
+                                <option value="PROSPECT">Prospect</option>
+                                <option value="CONTACTED">Contacted</option>
+                                <option value="RESPONDED">Responded</option>
+                                <option value="CONVERTED">Converted</option>
+                                <option value="INACTIVE">Inactive</option>
+                              </select>
+                              <Button variant="ghost" size="sm" className="text-destructive h-8" onClick={() => deleteContact(selectedContact.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            {selectedContact.displayName && <div><span className="text-muted-foreground">Name:</span> {selectedContact.displayName}</div>}
+                            {selectedContact.niche && <div><span className="text-muted-foreground">Niche:</span> {selectedContact.niche}</div>}
+                            {selectedContact.location && <div><span className="text-muted-foreground">Location:</span> {selectedContact.location}</div>}
+                            {selectedContact.followerCount != null && <div><span className="text-muted-foreground">Followers:</span> {selectedContact.followerCount.toLocaleString()}</div>}
+                            {selectedContact.bio && <div className="col-span-2"><span className="text-muted-foreground">Bio:</span> {selectedContact.bio}</div>}
+                            {selectedContact.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes:</span> {selectedContact.notes}</div>}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Generate Message */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Generate Message</CardTitle>
+                          <CardDescription>AI will create a personalized DM based on this contact's profile.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="flex gap-2 mb-2">
+                            <select
+                              className="h-9 rounded-md border border-input bg-background px-3 text-sm flex-1"
+                              value={messageTemplateType}
+                              onChange={e => setMessageTemplateType(e.target.value)}
+                            >
+                              <option value="introduction">Introduction</option>
+                              <option value="collaboration">Collaboration Request</option>
+                              <option value="product_pitch">Product Pitch</option>
+                              <option value="follow_up">Follow Up</option>
+                            </select>
+                            <Button
+                              size="sm"
+                              onClick={() => generateOutreachMessage(selectedContact.id)}
+                              disabled={isGeneratingMessage}
+                            >
+                              {isGeneratingMessage ? <><RefreshCw className="h-4 w-4 animate-spin mr-1" />Generating...</> : "Generate"}
+                            </Button>
+                          </div>
+                          <Input
+                            placeholder="Custom instructions (optional)..."
+                            value={customMessageInstructions}
+                            onChange={e => setCustomMessageInstructions(e.target.value)}
+                            className="text-sm"
+                          />
+                        </CardContent>
+                      </Card>
+
+                      {/* Messages List */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Messages ({outreachMessages.length})</CardTitle>
+                          <CardDescription>Draft and track messages to this contact. Copy message text and send manually via Instagram.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0 space-y-3">
+                          {outreachMessages.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">No messages yet. Generate one above.</p>
+                          ) : (
+                            outreachMessages.map((msg: any) => (
+                              <div key={msg.id} className="rounded-lg border p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    {msg.templateName && <span className="text-xs bg-muted px-2 py-0.5 rounded">{msg.templateName}</span>}
+                                    <span className={`text-xs rounded-full px-2 py-0.5 ${
+                                      msg.status === 'DRAFT' ? 'bg-yellow-100 text-yellow-700' :
+                                      msg.status === 'SENT' ? 'bg-blue-100 text-blue-700' :
+                                      msg.status === 'REPLIED' ? 'bg-green-100 text-green-700' :
+                                      'bg-red-100 text-red-700'
+                                    }`}>{msg.status}</span>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => {
+                                      navigator.clipboard.writeText(msg.messageBody);
+                                      toast({ title: "Copied", description: "Message copied to clipboard" });
+                                    }}>
+                                      Copy
+                                    </Button>
+                                    {msg.status === 'DRAFT' && (
+                                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => updateMessageStatus(msg.id, 'SENT')}>
+                                        Mark Sent
+                                      </Button>
+                                    )}
+                                    {msg.status === 'SENT' && (
+                                      <>
+                                        <Button variant="ghost" size="sm" className="h-7 px-2 text-green-600" onClick={() => updateMessageStatus(msg.id, 'REPLIED')}>
+                                          Got Reply
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="h-7 px-2 text-orange-600" onClick={() => updateMessageStatus(msg.id, 'NO_REPLY')}>
+                                          No Reply
+                                        </Button>
+                                      </>
+                                    )}
+                                    <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => deleteMessage(msg.id)}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <p className="text-sm whitespace-pre-wrap">{msg.messageBody}</p>
+                                <div className="text-xs text-muted-foreground mt-2">
+                                  {new Date(msg.createdAt).toLocaleDateString()}
+                                  {msg.sentAt && ` / Sent: ${new Date(msg.sentAt).toLocaleDateString()}`}
+                                  {msg.responseReceivedAt && ` / Reply: ${new Date(msg.responseReceivedAt).toLocaleDateString()}`}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Search Criteria Section */}
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="text-base">Search Criteria Templates</CardTitle>
+                  <CardDescription>Save criteria to help find potential contacts to add to your outreach list.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {outreachCriteria.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-2">No saved criteria yet.</p>
+                  ) : (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {outreachCriteria.map((c: any) => (
+                        <div key={c.id} className="rounded-lg border p-3">
+                          <div className="flex justify-between items-start">
+                            <p className="font-medium text-sm">{c.name}</p>
+                            <Button variant="ghost" size="sm" className="h-6 px-1 text-destructive" onClick={async () => {
+                              await fetch('/api/outreach/criteria', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }), credentials: 'include' });
+                              setOutreachCriteria(outreachCriteria.filter(x => x.id !== c.id));
+                            }}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {(c.searchTerms || []).map((t: string, i: number) => <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{t}</span>)}
+                            {(c.niches || []).map((n: string, i: number) => <span key={i} className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{n}</span>)}
+                            {(c.locations || []).map((l: string, i: number) => <span key={i} className="text-xs bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded">{l}</span>)}
+                          </div>
+                          {(c.followerMin || c.followerMax) && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Followers: {c.followerMin?.toLocaleString() || '0'} - {c.followerMax?.toLocaleString() || 'any'}
+                            </p>
+                          )}
+                          {c.notes && <p className="text-xs text-muted-foreground mt-1">{c.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <TabsContent value="wordpress">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold">WordPress Blog</h2>
@@ -2483,6 +3737,90 @@ export default function Dashboard() {
             </TabsContent>
           </Tabs>
         </main>
+
+        {/* Schedule Post Dialog */}
+        <Dialog open={isScheduling} onOpenChange={setIsScheduling}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Schedule Post</DialogTitle>
+              <DialogDescription>
+                Choose when to automatically publish this post.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="justify-start text-left font-normal">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {scheduleDate ? format(scheduleDate, 'PPP') : 'Pick a date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComponent
+                      mode="single"
+                      selected={scheduleDate}
+                      onSelect={setScheduleDate}
+                      disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Hour</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={scheduleHour}
+                    onChange={(e) => setScheduleHour(parseInt(e.target.value))}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Minute</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={scheduleMinute}
+                    onChange={(e) => setScheduleMinute(parseInt(e.target.value))}
+                  >
+                    {Array.from({ length: 60 }, (_, i) => (
+                      <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {accounts.length > 0 && (
+                <div className="grid gap-2">
+                  <Label>Social Media Account</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={scheduleAccountId}
+                    onChange={(e) => setScheduleAccountId(e.target.value)}
+                  >
+                    <option value="">Select an account</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" :
+                         account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsScheduling(false)}>Cancel</Button>
+              <Button onClick={handleSchedulePost} disabled={!scheduleDate}>
+                Schedule Post
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ProtectedRoute>
   );
