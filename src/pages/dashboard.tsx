@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/components/ui/use-toast";
 import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings } from "lucide-react";
 import { useRouter } from "next/router";
@@ -186,6 +187,7 @@ export default function Dashboard() {
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [isGeneratingInspired, setIsGeneratingInspired] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
+  const [searchFilters, setSearchFilters] = useState<string[]>(["for_you"]);
 
   // Scheduling dialog state
   const [isScheduling, setIsScheduling] = useState(false);
@@ -202,7 +204,6 @@ export default function Dashboard() {
   const [selectedInsightsAccountId, setSelectedInsightsAccountId] = useState<string>("");
 
   // Discovery state
-  const [searchType, setSearchType] = useState<'hashtag' | 'account'>('hashtag');
   const [accountSearchResults, setAccountSearchResults] = useState<any[]>([]);
   const [contentIdeas, setContentIdeas] = useState<any[]>([]);
   const [trackedHashtags, setTrackedHashtags] = useState<any[]>([]);
@@ -631,8 +632,9 @@ export default function Dashboard() {
     setSearchResults([]);
     setAccountSearchResults([]);
     try {
+      const filtersParam = searchFilters.length > 0 ? `&filters=${encodeURIComponent(searchFilters.join(','))}` : '';
       const response = await fetch(
-        `/api/instagram/search?query=${encodeURIComponent(searchQuery)}&type=${searchType}`,
+        `/api/instagram/search?query=${encodeURIComponent(searchQuery)}${filtersParam}`,
         { credentials: 'include' }
       );
 
@@ -642,7 +644,12 @@ export default function Dashboard() {
       }
 
       const data = await response.json();
-      if (data.searchType === 'account') {
+      if (data.searchType === 'combined') {
+        setSearchResults(data.results || []);
+        setAccountSearchResults(data.accountResults || []);
+        const totalCount = (data.results?.length || 0) + (data.accountResults?.length || 0);
+        toast({ title: "Search Complete", description: `Found ${totalCount} results` });
+      } else if (data.searchType === 'account') {
         setAccountSearchResults(data.results || []);
         toast({ title: "Search Complete", description: `Found ${data.results?.length || 0} accounts` });
       } else {
@@ -2917,25 +2924,28 @@ export default function Dashboard() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex gap-2 mb-3">
-                    <Button
-                      variant={searchType === 'hashtag' ? 'default' : 'outline'}
+                  <div className="mb-3">
+                    <Label className="text-xs text-muted-foreground mb-2 block">Search in:</Label>
+                    <ToggleGroup
+                      type="multiple"
+                      value={searchFilters}
+                      onValueChange={(value) => {
+                        if (value.length > 0) setSearchFilters(value);
+                      }}
+                      variant="outline"
                       size="sm"
-                      onClick={() => setSearchType('hashtag')}
+                      className="justify-start flex-wrap"
                     >
-                      # Hashtag
-                    </Button>
-                    <Button
-                      variant={searchType === 'account' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSearchType('account')}
-                    >
-                      @ Account
-                    </Button>
+                      <ToggleGroupItem value="for_you" className="text-xs">For you</ToggleGroupItem>
+                      <ToggleGroupItem value="accounts" className="text-xs">Accounts</ToggleGroupItem>
+                      <ToggleGroupItem value="audio" className="text-xs">Audio</ToggleGroupItem>
+                      <ToggleGroupItem value="tags" className="text-xs">Tags</ToggleGroupItem>
+                      <ToggleGroupItem value="places" className="text-xs">Places</ToggleGroupItem>
+                    </ToggleGroup>
                   </div>
                   <div className="flex gap-2">
                     <Input
-                      placeholder={searchType === 'hashtag' ? 'Search hashtags (e.g. travel, photography)...' : 'Look up an account (e.g. natgeo)...'}
+                      placeholder={searchFilters.includes('accounts') && searchFilters.length === 1 ? 'Look up an account (e.g. natgeo)...' : 'Search hashtags, topics, accounts...'}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyPress={(e) => { if (e.key === 'Enter') handleInstagramSearch(); }}
@@ -2945,7 +2955,7 @@ export default function Dashboard() {
                       {isSearching ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Searching...</> : "Search"}
                     </Button>
                   </div>
-                  {searchType === 'hashtag' && (
+                  {searchFilters.some(f => ['for_you', 'tags', 'audio', 'places'].includes(f)) && (
                     <p className="text-xs text-muted-foreground mt-2">
                       Note: Instagram limits hashtag searches to 30 unique hashtags per 7 days per account.
                     </p>
@@ -2973,6 +2983,18 @@ export default function Dashboard() {
                             {post.timestamp && <div className="text-xs text-muted-foreground">{new Date(post.timestamp).toLocaleDateString()}</div>}
                           </div>
                           <p className="text-sm line-clamp-3 mb-2">{post.caption}</p>
+                          {post.audioName && (
+                            <div className="flex items-center gap-1 mb-2 text-xs text-muted-foreground">
+                              <span>🎵</span>
+                              <span>{post.audioName}{post.audioArtist ? ` · ${post.audioArtist}` : ''}</span>
+                            </div>
+                          )}
+                          {post.placeName && (
+                            <div className="flex items-center gap-1 mb-2 text-xs text-muted-foreground">
+                              <span>📍</span>
+                              <span>{post.placeName}</span>
+                            </div>
+                          )}
                           <div className="flex flex-wrap gap-1 mb-3">
                             {(post.hashtags || []).slice(0, 4).map((tag: string, i: number) => (
                               <span key={i} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-blue-50 text-blue-700 cursor-pointer" onClick={() => trackHashtag(tag)}>
@@ -3074,7 +3096,7 @@ export default function Dashboard() {
                     <Instagram className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                     <h3 className="text-lg font-medium mb-2">No results found</h3>
                     <p className="text-muted-foreground mb-4">
-                      {searchType === 'account' ? 'Account must be a Business or Creator account to be discoverable.' : 'Try a different hashtag.'}
+                      {searchFilters.length === 1 && searchFilters[0] === 'accounts' ? 'Account must be a Business or Creator account to be discoverable.' : 'Try a different search term or adjust your filters.'}
                     </p>
                     <Button variant="outline" onClick={() => { setSearchQuery(""); setSearchResults([]); setAccountSearchResults([]); }}>Clear Search</Button>
                   </CardContent>
@@ -3210,7 +3232,7 @@ export default function Dashboard() {
                               <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => refreshCompetitor(comp.id)}>
                                 <RefreshCw className="h-3 w-3" />
                               </Button>
-                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { setSearchType('account'); setSearchQuery(comp.username); handleInstagramSearch(); }}>
+                              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { setSearchFilters(['accounts']); setSearchQuery(comp.username); handleInstagramSearch(); }}>
                                 View
                               </Button>
                               <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => untrackCompetitor(comp.id)}>

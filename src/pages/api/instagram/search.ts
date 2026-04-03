@@ -6,6 +6,9 @@ import { getAccessToken } from '@/lib/instagram-token-manager';
 
 const INSTAGRAM_GRAPH_API = 'https://graph.instagram.com/v22.0';
 
+const VALID_FILTERS = ['for_you', 'accounts', 'audio', 'tags', 'places'] as const;
+type SearchFilter = typeof VALID_FILTERS[number];
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -19,13 +22,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { query, type } = req.query;
+    const { query, type, filters: filtersParam } = req.query;
 
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ error: 'Search query is required' });
     }
 
-    const searchType = (type as string) || 'hashtag';
+    // Parse filters from the multi-select UI
+    const filters: SearchFilter[] = typeof filtersParam === 'string'
+      ? filtersParam.split(',').filter((f): f is SearchFilter => VALID_FILTERS.includes(f as SearchFilter))
+      : [];
+
+    // Determine search type from filters or legacy type param
+    const searchType = type as string || (filters.length > 0 ? null : 'hashtag');
 
     // Find user's first Instagram account for API access
     const igAccount = await prisma.socialMediaAccount.findFirst({
@@ -47,6 +56,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // When filters are provided, run searches for each applicable filter
+    if (filters.length > 0) {
+      const allResults: any[] = [];
+      const allAccountResults: any[] = [];
+
+      // Tags, For you, Audio, Places all use hashtag search as the closest API match
+      const useHashtagSearch = filters.some(f => ['for_you', 'tags', 'audio', 'places'].includes(f));
+      const useAccountSearch = filters.includes('accounts');
+
+      if (useHashtagSearch) {
+        const hashtagResults = await searchHashtag(accessToken, query, user.id);
+        allResults.push(...hashtagResults);
+      }
+
+      if (useAccountSearch) {
+        const accountResults = await searchAccounts(accessToken, query, user.id);
+        allAccountResults.push(...accountResults);
+      }
+
+      // Return combined results with appropriate search type
+      if (allAccountResults.length > 0 && allResults.length > 0) {
+        return res.status(200).json({
+          results: allResults,
+          accountResults: allAccountResults,
+          searchType: 'combined',
+          filters,
+        });
+      } else if (allAccountResults.length > 0) {
+        return res.status(200).json({ results: allAccountResults, searchType: 'account', filters });
+      } else {
+        return res.status(200).json({ results: allResults, searchType: 'hashtag', filters });
+      }
+    }
+
+    // Legacy behavior: use type param directly
     if (searchType === 'account') {
       const results = await searchAccounts(accessToken, query, user.id);
       return res.status(200).json({ results, searchType: 'account' });
