@@ -134,6 +134,115 @@ async function postToInstagram(
   videoType?: string
 ) {
   try {
+    // Check if mediaUrl contains multiple URLs (comma-separated) for carousel posts
+    const mediaUrls = mediaUrl.split(',').map(url => url.trim()).filter(url => url.length > 0);
+    const isCarousel = mediaUrls.length > 1;
+
+    if (isCarousel) {
+      // --- Carousel (multi-image) flow ---
+      logger.info(`Posting carousel with ${mediaUrls.length} images to Instagram`, { userId });
+
+      // Step 1: Create individual item containers for each image
+      const childContainerIds: string[] = [];
+
+      for (const url of mediaUrls) {
+        const resolvedUrl = await resolveImageUrl(url, supabase, userId);
+        logger.info(`Creating carousel item container for: ${resolvedUrl}`, { userId });
+
+        const itemResponse = await fetch(
+          `https://graph.instagram.com/v22.0/me/media`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({
+              image_url: resolvedUrl,
+              is_carousel_item: true
+            })
+          }
+        );
+
+        if (!itemResponse.ok) {
+          const errorData = await itemResponse.json();
+          logger.error('Instagram carousel item container creation failed:', errorData, { userId });
+          throw new Error(`Failed to create Instagram carousel item container: ${JSON.stringify(errorData)}`);
+        }
+
+        const itemData = await itemResponse.json();
+        if (!itemData.id) {
+          throw new Error('No container ID returned from Instagram API for carousel item');
+        }
+
+        childContainerIds.push(itemData.id);
+        logger.info(`Carousel item container created: ${itemData.id}`, { userId });
+      }
+
+      // Step 2: Create the carousel container
+      const carouselResponse = await fetch(
+        `https://graph.instagram.com/v22.0/me/media`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            media_type: 'CAROUSEL',
+            children: childContainerIds,
+            caption: caption
+          })
+        }
+      );
+
+      if (!carouselResponse.ok) {
+        const errorData = await carouselResponse.json();
+        logger.error('Instagram carousel container creation failed:', errorData, { userId });
+        throw new Error(`Failed to create Instagram carousel container: ${JSON.stringify(errorData)}`);
+      }
+
+      const carouselData = await carouselResponse.json();
+      const carouselContainerId = carouselData.id;
+
+      if (!carouselContainerId) {
+        throw new Error('No container ID returned from Instagram API for carousel');
+      }
+
+      logger.info(`Instagram carousel container created: ${carouselContainerId}`, { userId });
+
+      // Step 3: Publish the carousel container
+      const publishResponse = await fetch(
+        `https://graph.instagram.com/v22.0/me/media_publish`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            creation_id: carouselContainerId
+          })
+        }
+      );
+
+      if (!publishResponse.ok) {
+        const errorData = await publishResponse.json();
+        logger.error('Instagram carousel publish failed:', errorData, { userId });
+        throw new Error(`Failed to publish Instagram carousel: ${JSON.stringify(errorData)}`);
+      }
+
+      const publishData = await publishResponse.json();
+      logger.info(`Instagram carousel published successfully: ${publishData.id}`, { userId });
+
+      return {
+        success: true,
+        mediaId: publishData.id,
+        resolvedMediaUrl: mediaUrls[0]
+      };
+    }
+
+    // --- Single image/video flow ---
     // Resolve the media URL to a publicly accessible URL
     const resolvedMediaUrl = await resolveImageUrl(mediaUrl, supabase, userId);
 
@@ -390,6 +499,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       data: {
         socialMediaAccountId: id,
         status: 'PUBLISHED',
+        igMediaId: postResult?.mediaId || null,
       },
     });
     

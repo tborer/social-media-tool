@@ -354,7 +354,8 @@ async function processScheduledPosts(): Promise<{
             status: 'PUBLISHED',
             retryCount: 0,
             lastRetryAt: null,
-            errorMessage: null
+            errorMessage: null,
+            igMediaId: publishResult?.mediaId || null,
           }
         });
 
@@ -422,10 +423,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     logger.info('Scheduled posts processing completed', { results });
 
+    // Also trigger insights fetch as part of the daily cron
+    let insightsResult = null;
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const insightsResponse = await fetch(`${baseUrl}/api/insights/fetch-all`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.CRON_SECRET}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (insightsResponse.ok) {
+        insightsResult = await insightsResponse.json();
+        logger.info('Daily insights fetch completed', { insightsResult });
+      } else {
+        logger.warn('Daily insights fetch returned non-OK status', { status: insightsResponse.status });
+      }
+    } catch (insightsError) {
+      logger.warn('Daily insights fetch failed (non-fatal):', insightsError);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Scheduled posts processed',
-      results
+      results,
+      insights: insightsResult,
     });
   } catch (error) {
     logger.error('Error in scheduler handler:', error);

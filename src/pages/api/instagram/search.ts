@@ -1,6 +1,10 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@/util/supabase/api';
+import prisma from '@/lib/prisma';
 import { logger } from '@/lib/server-logger';
+import { getAccessToken } from '@/lib/instagram-token-manager';
+
+const INSTAGRAM_GRAPH_API = 'https://graph.instagram.com/v22.0';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -12,122 +16,179 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      logger.error('Authentication failed in Instagram search', { error: authError });
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { query } = req.query;
+    const { query, type } = req.query;
 
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ error: 'Search query is required' });
     }
 
-    logger.info('Instagram search request', { userId: user.id, query });
+    const searchType = (type as string) || 'hashtag';
 
-    // Since we don't have access to actual Instagram API for searching public content,
-    // we'll simulate search results with realistic mock data
-    const mockResults = generateMockInstagramResults(query);
-
-    logger.info('Instagram search completed', { 
-      userId: user.id, 
-      query, 
-      resultsCount: mockResults.length 
+    // Find user's first Instagram account for API access
+    const igAccount = await prisma.socialMediaAccount.findFirst({
+      where: { userId: user.id, accountType: 'INSTAGRAM' },
     });
 
-    res.status(200).json({ results: mockResults });
+    if (!igAccount) {
+      return res.status(400).json({
+        error: 'No Instagram account connected. Please connect an Instagram Business or Creator account first.',
+      });
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = await getAccessToken(igAccount.id, user.id);
+    } catch {
+      return res.status(400).json({
+        error: 'Failed to get Instagram access token. Please reconnect your account.',
+      });
+    }
+
+    if (searchType === 'account') {
+      const results = await searchAccounts(accessToken, query, user.id);
+      return res.status(200).json({ results, searchType: 'account' });
+    } else {
+      const results = await searchHashtag(accessToken, query, user.id);
+      return res.status(200).json({ results, searchType: 'hashtag' });
+    }
   } catch (error) {
     logger.error('Error in Instagram search', { error });
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Search failed. Please try again.' });
   }
 }
 
-function generateMockInstagramResults(query: string) {
-  const baseResults = [
-    {
-      id: '1',
-      username: 'travel_explorer',
-      accountType: 'creator',
-      verified: true,
-      imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=400&fit=crop',
-      caption: `Amazing sunset views from the mountains! 🌅 There's nothing quite like watching the world wake up from this height. The journey was challenging but so worth it for moments like these. #${query} #mountains #sunrise #adventure #nature #hiking #photography #wanderlust`,
-      likes: 15420,
-      comments: 342,
-      hashtags: [`#${query}`, '#mountains', '#sunrise', '#adventure', '#nature', '#hiking', '#photography', '#wanderlust'],
-      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: '2',
-      username: 'foodie_adventures',
-      accountType: 'business',
-      verified: false,
-      imageUrl: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=400&fit=crop',
-      caption: `Homemade pasta night! 🍝 Nothing beats the satisfaction of making fresh pasta from scratch. This carbonara recipe has been passed down through generations in my family. Swipe for the recipe! #${query} #pasta #homemade #cooking #italian #recipe #foodblogger #delicious`,
-      likes: 8934,
-      comments: 156,
-      hashtags: [`#${query}`, '#pasta', '#homemade', '#cooking', '#italian', '#recipe', '#foodblogger', '#delicious'],
-      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: '3',
-      username: 'fitness_motivation',
-      accountType: 'creator',
-      verified: true,
-      imageUrl: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=400&fit=crop',
-      caption: `Morning workout complete! 💪 Started the day with a 5K run followed by strength training. Remember, consistency is key - small steps every day lead to big changes. What's your favorite way to start the morning? #${query} #fitness #morning #workout #running #strength #motivation #healthy`,
-      likes: 12567,
-      comments: 289,
-      hashtags: [`#${query}`, '#fitness', '#morning', '#workout', '#running', '#strength', '#motivation', '#healthy'],
-      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: '4',
-      username: 'photo_artist',
-      accountType: 'creator',
-      verified: false,
-      imageUrl: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=400&h=400&fit=crop',
-      caption: `Golden hour magic ✨ Captured this stunning portrait during the perfect lighting conditions. The key to great ${query} is patience and understanding natural light. Camera settings: ISO 100, f/2.8, 1/250s #${query} #portrait #goldenhour #naturallight #photographer #art #creative #beautiful`,
-      likes: 9876,
-      comments: 203,
-      hashtags: [`#${query}`, '#portrait', '#goldenhour', '#naturallight', '#photographer', '#art', '#creative', '#beautiful'],
-      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: '5',
-      username: 'fashion_forward',
-      accountType: 'business',
-      verified: true,
-      imageUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400&h=400&fit=crop',
-      caption: `Fall vibes are here! 🍂 Loving this cozy sweater paired with classic denim. Sometimes the simplest combinations make the biggest impact. This look is perfect for transitioning from day to night. #${query} #fall #cozy #sweater #denim #style #ootd #casual #chic`,
-      likes: 18234,
-      comments: 445,
-      hashtags: [`#${query}`, '#fall', '#cozy', '#sweater', '#denim', '#style', '#ootd', '#casual', '#chic'],
-      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: '6',
-      username: 'tech_reviewer',
-      accountType: 'creator',
-      verified: false,
-      imageUrl: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=400&h=400&fit=crop',
-      caption: `New setup reveal! 💻 After months of planning, my home office is finally complete. The key to productivity is having a space that inspires you. Swipe to see the before photos! #${query} #setup #homeoffice #productivity #tech #workspace #minimal #design #inspiration`,
-      likes: 7654,
-      comments: 178,
-      hashtags: [`#${query}`, '#setup', '#homeoffice', '#productivity', '#tech', '#workspace', '#minimal', '#design', '#inspiration'],
-      timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-    }
-  ];
+async function searchHashtag(accessToken: string, query: string, userId: string) {
+  // Normalize: strip # prefix
+  const hashtag = query.replace(/^#/, '').trim().toLowerCase();
 
-  // Filter and customize results based on query
-  return baseResults
-    .map(result => ({
-      ...result,
-      caption: result.caption.replace(/Amazing|Homemade|Morning|Golden hour|Fall vibes|New setup/, 
-        query.charAt(0).toUpperCase() + query.slice(1)),
-      hashtags: [
-        `#${query}`,
-        ...result.hashtags.slice(1)
-      ]
-    }))
-    .sort((a, b) => b.likes - a.likes) // Sort by engagement
-    .slice(0, Math.floor(Math.random() * 3) + 4); // Return 4-6 results
+  if (!hashtag) return [];
+
+  try {
+    // Step 1: Get the hashtag ID
+    // Need the user's IG user ID first
+    const meResponse = await fetch(`${INSTAGRAM_GRAPH_API}/me?fields=id&access_token=${accessToken}`);
+    if (!meResponse.ok) {
+      logger.error('Failed to fetch IG user ID for hashtag search', { userId });
+      return [];
+    }
+    const meData = await meResponse.json();
+    const igUserId = meData.id;
+
+    const hashtagSearchResponse = await fetch(
+      `${INSTAGRAM_GRAPH_API}/ig_hashtag_search?q=${encodeURIComponent(hashtag)}&user_id=${igUserId}&access_token=${accessToken}`
+    );
+
+    if (!hashtagSearchResponse.ok) {
+      const errorData = await hashtagSearchResponse.json();
+      logger.error('Hashtag search failed', { errorData, userId });
+      // Return empty rather than error — API may rate limit (30 unique hashtags per 7 days)
+      return [];
+    }
+
+    const hashtagData = await hashtagSearchResponse.json();
+    const hashtagId = hashtagData?.data?.[0]?.id;
+
+    if (!hashtagId) {
+      return [];
+    }
+
+    // Step 2: Get top media for this hashtag
+    const topMediaResponse = await fetch(
+      `${INSTAGRAM_GRAPH_API}/${hashtagId}/top_media?user_id=${igUserId}&fields=id,caption,media_type,media_url,permalink,like_count,comments_count,timestamp&access_token=${accessToken}`
+    );
+
+    if (!topMediaResponse.ok) {
+      logger.error('Hashtag top media fetch failed', { userId });
+      return [];
+    }
+
+    const topMediaData = await topMediaResponse.json();
+    const posts = topMediaData?.data || [];
+
+    return posts.map((post: any) => ({
+      id: post.id,
+      username: '', // Not available from hashtag search
+      accountType: 'unknown',
+      verified: false,
+      imageUrl: post.media_url || '',
+      caption: post.caption || '',
+      likes: post.like_count || 0,
+      comments: post.comments_count || 0,
+      hashtags: extractHashtags(post.caption || ''),
+      timestamp: post.timestamp,
+      permalink: post.permalink,
+      mediaType: post.media_type,
+    }));
+  } catch (error) {
+    logger.error('Error in hashtag search', { error, userId });
+    return [];
+  }
+}
+
+async function searchAccounts(accessToken: string, query: string, userId: string) {
+  // Normalize: strip @ prefix
+  const username = query.replace(/^@/, '').trim().toLowerCase();
+
+  if (!username) return [];
+
+  try {
+    // Instagram Graph API doesn't have a direct user search endpoint for Business accounts.
+    // We use the Business Discovery API to look up a specific username.
+    const response = await fetch(
+      `${INSTAGRAM_GRAPH_API}/me?fields=business_discovery.fields(username,name,biography,followers_count,follows_count,media_count,profile_picture_url,media.limit(6){id,caption,media_type,media_url,permalink,like_count,comments_count,timestamp}).username(${encodeURIComponent(username)})&access_token=${accessToken}`
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      // 400 usually means user not found or not a business/creator account
+      if (response.status === 400) {
+        logger.info('Account not found or not a business account', { username, userId });
+        return [];
+      }
+      logger.error('Account lookup failed', { errorData, userId });
+      return [];
+    }
+
+    const data = await response.json();
+    const discovery = data?.business_discovery;
+
+    if (!discovery) return [];
+
+    const recentMedia = discovery.media?.data || [];
+
+    return [{
+      id: discovery.id || username,
+      username: discovery.username || username,
+      name: discovery.name || '',
+      bio: discovery.biography || '',
+      followers: discovery.followers_count || 0,
+      following: discovery.follows_count || 0,
+      mediaCount: discovery.media_count || 0,
+      profilePicture: discovery.profile_picture_url || '',
+      accountType: 'business',
+      verified: false,
+      recentPosts: recentMedia.map((post: any) => ({
+        id: post.id,
+        caption: post.caption || '',
+        imageUrl: post.media_url || '',
+        likes: post.like_count || 0,
+        comments: post.comments_count || 0,
+        hashtags: extractHashtags(post.caption || ''),
+        timestamp: post.timestamp,
+        permalink: post.permalink,
+        mediaType: post.media_type,
+      })),
+    }];
+  } catch (error) {
+    logger.error('Error in account search', { error, userId });
+    return [];
+  }
+}
+
+function extractHashtags(caption: string): string[] {
+  const matches = caption.match(/#\w+/g) || [];
+  return matches.slice(0, 10); // Limit to 10 for display
 }
