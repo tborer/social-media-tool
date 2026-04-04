@@ -86,43 +86,12 @@ async function updateSocialMediaAccount(req: NextApiRequest, res: NextApiRespons
       },
     });
     
-    // Log the update
-    await logger.log({
-      type: 'CONTENT_POST',
-      endpoint: `/api/social-media-accounts/${accountId}`,
-      userId,
-      requestData: {
-        method: 'PUT',
-        id: accountId,
-        ...(username && { username }),
-        ...(accountType && { accountType }),
-      },
-      response: {
-        id: updatedAccount.id,
-        username: updatedAccount.username,
-        accountType: updatedAccount.accountType,
-      },
-      status: 200,
-    });
-    
+    logger.info('Updated social media account', { accountId, userId });
     return res.status(200).json(updatedAccount);
   } catch (error) {
-    console.error('Error updating social media account:', error);
-    
-    // Log the error
-    await logger.log({
-      type: 'CONTENT_POST',
-      endpoint: `/api/social-media-accounts/${accountId}`,
-      userId,
-      requestData: {
-        method: 'PUT',
-        id: accountId,
-      },
-      error: error instanceof Error ? error.message : 'Unknown error',
-      status: 500,
-    });
-    
-    return res.status(500).json({ error: 'Failed to update social media account' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error updating social media account', { accountId, userId, errorMessage });
+    return res.status(500).json({ error: 'Failed to update social media account', details: errorMessage });
   }
 }
 
@@ -136,45 +105,48 @@ async function deleteSocialMediaAccount(req: NextApiRequest, res: NextApiRespons
         userId,
       },
     });
-    
+
     if (!existingAccount) {
       return res.status(404).json({ error: 'Social media account not found' });
     }
-    
-    // Delete the account
-    await prisma.socialMediaAccount.delete({
-      where: { id: accountId },
+
+    // Explicitly clean up related records in a transaction to avoid relying
+    // on database-level cascade rules which may be out of sync with the schema.
+    await prisma.$transaction(async (tx: any) => {
+      // Null out ContentPost references (matches schema onDelete: SetNull)
+      await tx.contentPost.updateMany({
+        where: { socialMediaAccountId: accountId },
+        data: { socialMediaAccountId: null },
+      });
+
+      // Delete AccountInsight records (matches schema onDelete: Cascade)
+      await tx.accountInsight.deleteMany({
+        where: { accountId },
+      });
+
+      // Finally delete the account itself
+      await tx.socialMediaAccount.delete({
+        where: { id: accountId },
+      });
     });
-    
-    // Log the deletion
-    await logger.log({
-      type: 'CONTENT_POST',
-      endpoint: `/api/social-media-accounts/${accountId}`,
-      userId,
-      requestData: {
-        method: 'DELETE',
-        id: accountId,
-      },
-      status: 204,
-    });
-    
+
+    logger.info('Deleted social media account', { accountId, userId });
     return res.status(204).send(null);
   } catch (error) {
-    console.error('Error deleting social media account:', error);
-    
-    // Log the error
-    await logger.log({
-      type: 'CONTENT_POST',
-      endpoint: `/api/social-media-accounts/${accountId}`,
+    // Surface the actual error message so we can diagnose failures
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = (error as any)?.code;
+    logger.error('Error deleting social media account', {
+      accountId,
       userId,
-      requestData: {
-        method: 'DELETE',
-        id: accountId,
-      },
-      error: error instanceof Error ? error.message : 'Unknown error',
-      status: 500,
+      errorMessage,
+      errorCode,
     });
-    
-    return res.status(500).json({ error: 'Failed to delete social media account' });
+
+    return res.status(500).json({
+      error: 'Failed to delete social media account',
+      details: errorMessage,
+      code: errorCode,
+    });
   }
 }

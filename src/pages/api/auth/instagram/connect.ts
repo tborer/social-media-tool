@@ -32,10 +32,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Check if Instagram OAuth is configured
     if (!isInstagramConfigured()) {
-      logger.error('Instagram OAuth not configured');
-      return res.status(500).json({
-        error: 'Instagram OAuth is not configured. Please contact your administrator.',
-      });
+      logger.error('Instagram OAuth not configured - missing env vars (INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_REDIRECT_URI)');
+      // Redirect back to dashboard with an error so the user sees a toast
+      // instead of raw JSON. This is a deployment/config issue.
+      return res.redirect(
+        '/dashboard?error=' +
+          encodeURIComponent(
+            'Instagram OAuth is not configured on the server. An administrator must set INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, and INSTAGRAM_REDIRECT_URI environment variables.'
+          )
+      );
     }
 
     // Generate a state parameter for CSRF protection
@@ -58,9 +63,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.redirect(authUrl);
   } catch (error) {
     logger.error('Error in Instagram connect endpoint:', error);
-    return res.status(500).json({
-      error: 'Failed to initiate Instagram OAuth',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
+    return res.redirect(
+      '/dashboard?error=' +
+        encodeURIComponent(
+          'Failed to initiate Instagram OAuth: ' +
+            (error instanceof Error ? error.message : 'Unknown error')
+        )
+    );
   }
 }
