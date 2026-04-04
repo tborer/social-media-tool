@@ -229,6 +229,21 @@ export default function Dashboard() {
   const [messageTemplateType, setMessageTemplateType] = useState('introduction');
   const [customMessageInstructions, setCustomMessageInstructions] = useState('');
 
+  // Show toast messages from OAuth redirects (error or success query params)
+  useEffect(() => {
+    if (!router.isReady) return;
+    const { error, success } = router.query;
+    if (error && typeof error === 'string') {
+      toast({ variant: "destructive", title: "Error", description: error });
+      const { error: _e, ...rest } = router.query;
+      router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    } else if (success === 'instagram_connected') {
+      toast({ title: "Success", description: "Instagram account connected successfully" });
+      const { success: _s, ...rest } = router.query;
+      router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    }
+  }, [router.isReady, router.query.error, router.query.success]);
+
   // Fetch social media accounts and content posts
   useEffect(() => {
     if (user) {
