@@ -3,6 +3,7 @@ import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
 import { logger } from '@/lib/server-logger';
 import { getAccessToken } from '@/lib/instagram-token-manager';
+import { sendInstagramError } from '@/lib/instagram-error-handler';
 
 const INSTAGRAM_GRAPH_API = 'https://graph.instagram.com/v22.0';
 
@@ -93,7 +94,17 @@ async function fetchAccountInsights(req: NextApiRequest, res: NextApiResponse, u
     }
 
     // Get access token
-    const accessToken = await getAccessToken(accountId, userId);
+    let accessToken: string;
+    try {
+      accessToken = await getAccessToken(accountId, userId);
+    } catch (tokenError) {
+      logger.error('Failed to get access token for account insights', tokenError, { userId, accountId });
+      return res.status(401).json({
+        error: 'Failed to get Instagram access token. Please reconnect your Instagram account.',
+        code: 'TOKEN_UNAVAILABLE',
+        details: tokenError instanceof Error ? tokenError.message : 'Unknown error',
+      });
+    }
 
     // Fetch basic account fields from Instagram Graph API
     const meResponse = await fetch(
@@ -101,9 +112,9 @@ async function fetchAccountInsights(req: NextApiRequest, res: NextApiResponse, u
     );
 
     if (!meResponse.ok) {
-      const errorData = await meResponse.json();
-      logger.error('Instagram /me API error:', errorData, { userId });
-      return res.status(502).json({ error: 'Failed to fetch account data from Instagram', details: errorData });
+      const errorData = await meResponse.json().catch(() => ({}));
+      logger.error('Instagram /me API error:', errorData, { userId, accountId, status: meResponse.status });
+      return sendInstagramError(res, meResponse.status, errorData);
     }
 
     const meData = await meResponse.json();
