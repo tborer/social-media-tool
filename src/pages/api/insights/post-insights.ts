@@ -3,6 +3,7 @@ import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
 import { logger } from '@/lib/server-logger';
 import { getAccessToken } from '@/lib/instagram-token-manager';
+import { sendInstagramError } from '@/lib/instagram-error-handler';
 
 const INSTAGRAM_GRAPH_API = 'https://graph.instagram.com/v22.0';
 
@@ -101,7 +102,17 @@ async function fetchPostInsights(req: NextApiRequest, res: NextApiResponse, user
     }
 
     // Get access token
-    const accessToken = await getAccessToken(post.socialMediaAccountId, userId);
+    let accessToken: string;
+    try {
+      accessToken = await getAccessToken(post.socialMediaAccountId, userId);
+    } catch (tokenError) {
+      logger.error('Failed to get access token for post insights', tokenError, { userId, postId });
+      return res.status(401).json({
+        error: 'Failed to get Instagram access token. Please reconnect your Instagram account.',
+        code: 'TOKEN_UNAVAILABLE',
+        details: tokenError instanceof Error ? tokenError.message : 'Unknown error',
+      });
+    }
 
     // Fetch insights from Instagram Graph API
     const insightsResponse = await fetch(
@@ -109,9 +120,9 @@ async function fetchPostInsights(req: NextApiRequest, res: NextApiResponse, user
     );
 
     if (!insightsResponse.ok) {
-      const errorData = await insightsResponse.json();
-      logger.error('Instagram insights API error:', errorData, { userId });
-      return res.status(502).json({ error: 'Failed to fetch insights from Instagram', details: errorData });
+      const errorData = await insightsResponse.json().catch(() => ({}));
+      logger.error('Instagram insights API error:', errorData, { userId, postId, status: insightsResponse.status });
+      return sendInstagramError(res, insightsResponse.status, errorData);
     }
 
     const insightsData = await insightsResponse.json();
