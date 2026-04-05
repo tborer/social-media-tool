@@ -130,33 +130,42 @@ model UserSettings {
 }
 
 model PostInsight {
-  id          String   @id @default(uuid())
-  postId      String
-  post        ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  impressions Int      @default(0)
-  reach       Int      @default(0)
-  likes       Int      @default(0)
-  comments    Int      @default(0)
-  shares      Int      @default(0)
-  saves       Int      @default(0)
-  engagement  Float    @default(0) // Calculated engagement rate
-  fetchedAt   DateTime @default(now())
+  id             String      @id @default(uuid())
+  postId         String
+  post           ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform       String      @default("INSTAGRAM") // INSTAGRAM | LINKEDIN | X
+  platformPostId String?     // native post/media ID from the platform
+  impressions    Int         @default(0)
+  reach          Int         @default(0)
+  likes          Int         @default(0)
+  comments       Int         @default(0)
+  shares         Int         @default(0)
+  saves          Int         @default(0)
+  clicks         Int         @default(0) // LinkedIn link clicks / X url_link_clicks
+  profileVisits  Int         @default(0) // X user_profile_clicks
+  bookmarks      Int         @default(0) // X bookmark_count
+  engagement     Float       @default(0) // Calculated engagement rate
+  fetchedAt      DateTime    @default(now())
 
   @@index([postId])
+  @@index([platform])
 }
 
 model AccountInsight {
-  id            String             @id @default(uuid())
-  accountId     String
-  account       SocialMediaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  followers     Int                @default(0)
-  following     Int                @default(0)
-  mediaCount    Int                @default(0)
-  profileViews  Int                @default(0)
-  websiteClicks Int                @default(0)
-  fetchedAt     DateTime           @default(now())
+  id             String             @id @default(uuid())
+  accountId      String
+  account        SocialMediaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  platform       String             @default("INSTAGRAM") // INSTAGRAM | LINKEDIN | X
+  followers      Int                @default(0)
+  following      Int                @default(0)
+  mediaCount     Int                @default(0)
+  profileViews   Int                @default(0)
+  websiteClicks  Int                @default(0)
+  followerGrowth Int?               // delta vs previous fetch
+  fetchedAt      DateTime           @default(now())
 
   @@index([accountId])
+  @@index([platform])
 }
 
 enum IdeaStatus {

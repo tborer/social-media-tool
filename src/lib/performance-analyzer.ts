@@ -1,10 +1,15 @@
 import prisma from '@/lib/prisma';
 
+type Platform = 'INSTAGRAM' | 'LINKEDIN' | 'X' | 'ALL';
+
 interface TopPost {
+  id: string;
   captionSnippet: string;
+  platform: string;
   engagement: number;
   likes: number;
   reach: number;
+  impressions: number;
 }
 
 interface BestPostingTime {
@@ -20,6 +25,25 @@ interface HashtagAnalysis {
   avoidHashtags: string[];
 }
 
+interface ContentTypeBreakdown {
+  type: string;
+  count: number;
+  avgEngagement: number;
+}
+
+interface PlatformStats {
+  platform: string;
+  totalPosts: number;
+  avgEngagement: number;
+  avgLikes: number;
+  avgComments: number;
+  avgShares: number;
+  avgReach: number;
+  avgImpressions: number;
+  followers: number | null;
+  followerGrowth: number | null;
+}
+
 export interface PerformanceSummary {
   totalPosts: number;
   avgEngagement: number;
@@ -33,6 +57,9 @@ export interface PerformanceSummary {
   bestPostingTimes: BestPostingTime[];
   hashtagAnalysis: HashtagAnalysis;
   followerCount: number | null;
+  // Cross-platform additions
+  platformStats: PlatformStats[];
+  contentTypeBreakdown: ContentTypeBreakdown[];
 }
 
 function extractHashtags(caption: string): string[] {
@@ -44,7 +71,15 @@ function truncateCaption(caption: string, maxLen = 80): string {
   return caption.length > maxLen ? caption.slice(0, maxLen) + '...' : caption;
 }
 
-export async function getPerformanceSummary(userId: string): Promise<PerformanceSummary> {
+function avg(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.round((values.reduce((s, v) => s + v, 0) / values.length) * 100) / 100;
+}
+
+export async function getPerformanceSummary(
+  userId: string,
+  platform: Platform = 'ALL'
+): Promise<PerformanceSummary> {
   // Fetch all published posts with their latest insights
   const posts = await prisma.contentPost.findMany({
     where: { userId, status: 'PUBLISHED' },
@@ -57,7 +92,7 @@ export async function getPerformanceSummary(userId: string): Promise<Performance
     orderBy: { createdAt: 'desc' },
   });
 
-  // Fetch latest account insight for follower count
+  // Fetch latest account insight per account (all platforms)
   const accounts = await prisma.socialMediaAccount.findMany({
     where: { userId },
     include: {
@@ -72,24 +107,93 @@ export async function getPerformanceSummary(userId: string): Promise<Performance
     .flatMap((a) => a.accountInsights)
     .sort((a, b) => b.fetchedAt.getTime() - a.fetchedAt.getTime())[0];
 
-  // Build per-post data with insight metrics
+  // Build per-post data — filter by platform when requested
   const postData = posts
     .filter((p) => p.postInsights.length > 0)
+    .filter((p) => {
+      if (platform === 'ALL') return true;
+      return p.postInsights[0].platform === platform;
+    })
     .map((p) => {
       const insight = p.postInsights[0];
       return {
+        id: p.id,
         caption: p.caption,
+        contentType: p.contentType,
         createdAt: p.createdAt,
+        platform: insight.platform,
         engagement: insight.engagement,
         likes: insight.likes,
         comments: insight.comments,
         shares: insight.shares,
         saves: insight.saves,
         reach: insight.reach,
+        impressions: insight.impressions,
       };
     });
 
   const totalPosts = postData.length;
+
+  // ------------------------------------------------------------------
+  // Per-platform stats
+  // ------------------------------------------------------------------
+  const platformGroups = new Map<string, typeof postData>();
+  for (const p of posts.filter((p) => p.postInsights.length > 0)) {
+    const ins = p.postInsights[0];
+    const pl = ins.platform;
+    if (!platformGroups.has(pl)) platformGroups.set(pl, []);
+    platformGroups.get(pl)!.push({
+      id: p.id,
+      caption: p.caption,
+      contentType: p.contentType,
+      createdAt: p.createdAt,
+      platform: pl,
+      engagement: ins.engagement,
+      likes: ins.likes,
+      comments: ins.comments,
+      shares: ins.shares,
+      saves: ins.saves,
+      reach: ins.reach,
+      impressions: ins.impressions,
+    });
+  }
+
+  const platformStats: PlatformStats[] = [];
+  for (const [pl, pData] of platformGroups) {
+    const acct = accounts.find((a) => a.accountType === pl);
+    const latestAcctIns = acct?.accountInsights[0] ?? null;
+    platformStats.push({
+      platform: pl,
+      totalPosts: pData.length,
+      avgEngagement: avg(pData.map((p) => p.engagement)),
+      avgLikes: avg(pData.map((p) => p.likes)),
+      avgComments: avg(pData.map((p) => p.comments)),
+      avgShares: avg(pData.map((p) => p.shares)),
+      avgReach: avg(pData.map((p) => p.reach)),
+      avgImpressions: avg(pData.map((p) => p.impressions)),
+      followers: latestAcctIns?.followers ?? null,
+      followerGrowth: latestAcctIns?.followerGrowth ?? null,
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Content type breakdown
+  // ------------------------------------------------------------------
+  const typeGroups = new Map<string, number[]>();
+  for (const p of postData) {
+    const t = p.contentType;
+    if (!typeGroups.has(t)) typeGroups.set(t, []);
+    typeGroups.get(t)!.push(p.engagement);
+  }
+  const contentTypeBreakdown: ContentTypeBreakdown[] = [];
+  for (const [type, engagements] of typeGroups) {
+    contentTypeBreakdown.push({
+      type,
+      count: engagements.length,
+      avgEngagement: avg(engagements),
+    });
+  }
+  contentTypeBreakdown.sort((a, b) => b.avgEngagement - a.avgEngagement);
 
   if (totalPosts === 0) {
     return {
@@ -110,32 +214,30 @@ export async function getPerformanceSummary(userId: string): Promise<Performance
         avoidHashtags: [],
       },
       followerCount: latestAccountInsight?.followers ?? null,
+      platformStats,
+      contentTypeBreakdown,
     };
   }
 
-  // Averages
-  const sum = postData.reduce(
-    (acc, p) => ({
-      engagement: acc.engagement + p.engagement,
-      likes: acc.likes + p.likes,
-      comments: acc.comments + p.comments,
-      shares: acc.shares + p.shares,
-      saves: acc.saves + p.saves,
-      reach: acc.reach + p.reach,
-    }),
-    { engagement: 0, likes: 0, comments: 0, shares: 0, saves: 0, reach: 0 }
-  );
-
-  const avg = (v: number) => Math.round((v / totalPosts) * 100) / 100;
+  // Aggregate averages
+  const sumE = avg(postData.map((p) => p.engagement));
+  const sumL = avg(postData.map((p) => p.likes));
+  const sumC = avg(postData.map((p) => p.comments));
+  const sumSh = avg(postData.map((p) => p.shares));
+  const sumSv = avg(postData.map((p) => p.saves));
+  const sumR = avg(postData.map((p) => p.reach));
 
   // Sort by engagement for top/worst
   const sorted = [...postData].sort((a, b) => b.engagement - a.engagement);
 
   const toTopPost = (p: (typeof postData)[0]): TopPost => ({
+    id: p.id,
     captionSnippet: truncateCaption(p.caption),
+    platform: p.platform,
     engagement: p.engagement,
     likes: p.likes,
     reach: p.reach,
+    impressions: p.impressions,
   });
 
   const topPosts = sorted.slice(0, 5).map(toTopPost);
@@ -159,18 +261,13 @@ export async function getPerformanceSummary(userId: string): Promise<Performance
     .slice(0, 5)
     .map((t) => ({ hour: t.hour, dayOfWeek: t.dayOfWeek, postCount: t.count }));
 
-  // Hashtag analysis
-  const topHashtags = sorted
-    .slice(0, 5)
-    .flatMap((p) => extractHashtags(p.caption));
-  const worstHashtags = sorted
-    .slice(-3)
-    .flatMap((p) => extractHashtags(p.caption));
+  // Hashtag analysis (caption-level, works across platforms)
+  const topHashtags = sorted.slice(0, 5).flatMap((p) => extractHashtags(p.caption));
+  const worstHashtags = sorted.slice(-3).flatMap((p) => extractHashtags(p.caption));
 
   const topSet = new Set(topHashtags);
   const worstSet = new Set(worstHashtags);
 
-  // Count frequency in top posts
   const topFreq = new Map<string, number>();
   for (const h of topHashtags) {
     topFreq.set(h, (topFreq.get(h) || 0) + 1);
@@ -186,12 +283,12 @@ export async function getPerformanceSummary(userId: string): Promise<Performance
 
   return {
     totalPosts,
-    avgEngagement: avg(sum.engagement),
-    avgLikes: avg(sum.likes),
-    avgComments: avg(sum.comments),
-    avgShares: avg(sum.shares),
-    avgSaves: avg(sum.saves),
-    avgReach: avg(sum.reach),
+    avgEngagement: sumE,
+    avgLikes: sumL,
+    avgComments: sumC,
+    avgShares: sumSh,
+    avgSaves: sumSv,
+    avgReach: sumR,
     topPosts,
     worstPosts,
     bestPostingTimes,
@@ -202,5 +299,7 @@ export async function getPerformanceSummary(userId: string): Promise<Performance
       avoidHashtags,
     },
     followerCount: latestAccountInsight?.followers ?? null,
+    platformStats,
+    contentTypeBreakdown,
   };
 }

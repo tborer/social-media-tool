@@ -206,6 +206,11 @@ export default function Dashboard() {
   const [accountInsights, setAccountInsights] = useState<any[]>([]);
   const [isFetchingInsights, setIsFetchingInsights] = useState(false);
   const [selectedInsightsAccountId, setSelectedInsightsAccountId] = useState<string>("");
+  // Combined cross-platform insights
+  const [combinedInsights, setCombinedInsights] = useState<any>(null);
+  const [isLoadingCombined, setIsLoadingCombined] = useState(false);
+  const [insightsPlatformFilter, setInsightsPlatformFilter] = useState<string>('ALL');
+  const [postTableSort, setPostTableSort] = useState<string>('engagement');
 
   // Discovery state
   const [accountSearchResults, setAccountSearchResults] = useState<any[]>([]);
@@ -1176,6 +1181,46 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch combined cross-platform insights
+  const fetchCombinedInsights = async (platform = 'ALL') => {
+    setIsLoadingCombined(true);
+    try {
+      const response = await fetch(`/api/insights/combined-insights?platform=${platform}`, { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setCombinedInsights(data);
+      }
+    } catch (error) {
+      console.error('Error fetching combined insights:', error);
+    } finally {
+      setIsLoadingCombined(false);
+    }
+  };
+
+  // Refresh LinkedIn/X insights for an account
+  const refreshPlatformAccountInsights = async (accountId: string, platform: 'LINKEDIN' | 'X') => {
+    setIsFetchingInsights(true);
+    try {
+      const endpoint = platform === 'LINKEDIN' ? '/api/insights/linkedin-insights' : '/api/insights/x-insights';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch insights');
+      }
+      toast({ title: "Success", description: `${platform} insights updated` });
+      fetchCombinedInsights(insightsPlatformFilter);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to fetch insights" });
+    } finally {
+      setIsFetchingInsights(false);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-background flex-col">
@@ -1209,7 +1254,7 @@ export default function Dashboard() {
             <TabsList className="mb-6">
               <TabsTrigger value="accounts">Social Media Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
-              <TabsTrigger value="insights">Instagram Insights</TabsTrigger>
+              <TabsTrigger value="insights">Combined Insights</TabsTrigger>
               <TabsTrigger value="outreach">Outreach</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
               <TabsTrigger value="logging">Logging</TabsTrigger>
@@ -2821,180 +2866,379 @@ export default function Dashboard() {
             </TabsContent>
             
             <TabsContent value="insights">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold">Instagram Insights</h2>
-                <div className="text-sm text-muted-foreground">
-                  Track performance &amp; discover high-performing content
+              <div className="flex flex-wrap justify-between items-center mb-6 gap-3">
+                <h2 className="text-3xl font-bold">Combined Insights</h2>
+                <div className="flex items-center gap-2">
+                  <select
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    value={insightsPlatformFilter}
+                    onChange={(e) => {
+                      setInsightsPlatformFilter(e.target.value);
+                      fetchCombinedInsights(e.target.value);
+                    }}
+                  >
+                    <option value="ALL">All Platforms</option>
+                    <option value="INSTAGRAM">Instagram</option>
+                    <option value="LINKEDIN">LinkedIn</option>
+                    <option value="X">X (Twitter)</option>
+                  </select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchCombinedInsights(insightsPlatformFilter)}
+                    disabled={isLoadingCombined}
+                  >
+                    {isLoadingCombined ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                    Load Insights
+                  </Button>
                 </div>
               </div>
 
-              {/* Account Insights Section */}
-              {accounts.filter(a => a.accountType === 'INSTAGRAM').length > 0 && (
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span className="flex items-center">
-                        <Instagram className="h-5 w-5 mr-2 text-pink-500" />
-                        Account Performance
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                          value={selectedInsightsAccountId}
-                          onChange={(e) => {
-                            setSelectedInsightsAccountId(e.target.value);
-                            if (e.target.value) fetchAccountInsights(e.target.value);
-                          }}
-                        >
-                          <option value="">Select account</option>
-                          {accounts.filter(a => a.accountType === 'INSTAGRAM').map((account) => (
-                            <option key={account.id} value={account.id}>
-                              @{account.username}
-                            </option>
-                          ))}
-                        </select>
-                        {selectedInsightsAccountId && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => refreshAccountInsights(selectedInsightsAccountId)}
-                            disabled={isFetchingInsights}
-                          >
-                            {isFetchingInsights ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                          </Button>
-                        )}
-                      </div>
-                    </CardTitle>
-                    <CardDescription>
-                      View follower counts, profile views, and engagement metrics for your account.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {!selectedInsightsAccountId ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">Select an account above to view insights.</p>
-                    ) : accountInsights.length === 0 ? (
-                      <div className="text-center py-4">
-                        <p className="text-sm text-muted-foreground mb-2">No insights data yet.</p>
-                        <Button variant="outline" size="sm" onClick={() => refreshAccountInsights(selectedInsightsAccountId)} disabled={isFetchingInsights}>
-                          {isFetchingInsights ? "Fetching..." : "Fetch Insights Now"}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        {(() => {
-                          const latest = accountInsights[0];
-                          const prev = accountInsights.length > 1 ? accountInsights[1] : null;
-                          const metrics = [
-                            { label: 'Followers', value: latest.followers, prev: prev?.followers },
-                            { label: 'Following', value: latest.following, prev: prev?.following },
-                            { label: 'Posts', value: latest.mediaCount, prev: prev?.mediaCount },
-                            { label: 'Profile Views', value: latest.profileViews, prev: prev?.profileViews },
-                            { label: 'Website Clicks', value: latest.websiteClicks, prev: prev?.websiteClicks },
-                          ];
-                          return metrics.map((m) => {
-                            const diff = m.prev !== undefined && m.prev !== null ? m.value - m.prev : null;
-                            return (
-                              <div key={m.label} className="rounded-lg border p-3 text-center">
-                                <div className="text-2xl font-bold">{m.value.toLocaleString()}</div>
-                                <div className="text-xs text-muted-foreground">{m.label}</div>
-                                {diff !== null && diff !== 0 && (
-                                  <div className={`text-xs mt-1 ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {diff > 0 ? '+' : ''}{diff.toLocaleString()}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    )}
-                    {accountInsights.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-3">
-                        Last updated: {new Date(accountInsights[0].fetchedAt).toLocaleString()}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Post Performance Section */}
-              {posts.filter(p => p.status === 'PUBLISHED').length > 0 && (
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Post Performance</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={fetchPostInsights}
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" /> Load Insights
-                      </Button>
-                    </CardTitle>
-                    <CardDescription>
-                      View engagement metrics for your published posts. Click refresh on individual posts to pull latest data from Instagram.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {posts.filter(p => p.status === 'PUBLISHED').map((post) => {
-                        const insight = postInsights.find(i => i.postId === post.id);
-                        return (
-                          <div key={post.id} className="rounded-lg border p-4">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">{post.caption.substring(0, 60)}...</p>
-                                {post.socialMediaAccount && (
-                                  <p className="text-xs text-muted-foreground">@{post.socialMediaAccount.username}</p>
-                                )}
+              {/* ---- Account Overview Strip ---- */}
+              {accounts.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Account Overview</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {accounts.map((acct) => {
+                      const overview = combinedInsights?.accountOverview?.find((o: any) => o.accountId === acct.id);
+                      const platformColor = acct.accountType === 'INSTAGRAM' ? 'text-pink-500' : acct.accountType === 'LINKEDIN' ? 'text-blue-600' : 'text-foreground';
+                      const platformLabel = acct.accountType === 'INSTAGRAM' ? 'Instagram' : acct.accountType === 'LINKEDIN' ? 'LinkedIn' : acct.accountType === 'X' ? 'X' : acct.accountType;
+                      const followers = overview?.followers ?? 0;
+                      const growth = overview?.followerGrowth ?? null;
+                      return (
+                        <Card key={acct.id} className="relative">
+                          <CardContent className="pt-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div>
+                                <p className="font-semibold text-sm">@{acct.username}</p>
+                                <p className={`text-xs ${platformColor}`}>{platformLabel}</p>
                               </div>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => refreshPostInsights(post.id)}
+                                onClick={() => {
+                                  if (acct.accountType === 'INSTAGRAM') refreshAccountInsights(acct.id);
+                                  else refreshPlatformAccountInsights(acct.id, acct.accountType as 'LINKEDIN' | 'X');
+                                }}
                                 disabled={isFetchingInsights}
+                                title="Refresh insights"
                               >
-                                <RefreshCw className={`h-3 w-3 ${isFetchingInsights ? 'animate-spin' : ''}`} />
+                                <RefreshCw className={`h-4 w-4 ${isFetchingInsights ? 'animate-spin' : ''}`} />
                               </Button>
                             </div>
-                            {insight ? (
+                            {overview ? (
                               <div className="grid grid-cols-3 gap-2 text-center">
                                 <div>
-                                  <div className="text-lg font-bold">{insight.reach.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Reach</div>
+                                  <div className="text-xl font-bold">{followers.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Followers</div>
+                                  {growth !== null && growth !== 0 && (
+                                    <div className={`text-xs mt-0.5 font-medium ${growth > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {growth > 0 ? '+' : ''}{growth.toLocaleString()}
+                                    </div>
+                                  )}
                                 </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.likes.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Likes</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.comments.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Comments</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.shares.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Shares</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.saves.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Saves</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.engagement.toFixed(1)}%</div>
-                                  <div className="text-xs text-muted-foreground">Engagement</div>
-                                </div>
+                                {acct.accountType === 'INSTAGRAM' ? (
+                                  <>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.profileViews ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Profile Views</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.mediaCount ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Posts</div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.following ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Following</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.mediaCount ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Posts</div>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground text-center py-2">
-                                No insights yet. Click refresh to fetch from Instagram.
+                              <p className="text-xs text-muted-foreground text-center py-3">No data yet — click refresh.</p>
+                            )}
+                            {overview?.lastFetchedAt && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Updated {new Date(overview.lastFetchedAt).toLocaleDateString()}
                               </p>
                             )}
-                          </div>
-                        );
-                      })}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ---- Platform Stats Summary ---- */}
+              {combinedInsights?.summary?.platformStats?.length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle>Platform Comparison</CardTitle>
+                    <CardDescription>Average engagement metrics across your connected platforms.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Platform</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Posts</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Engagement</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Likes</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Comments</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Reach</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {combinedInsights.summary.platformStats.map((stat: any) => (
+                            <tr key={stat.platform} className="border-b last:border-0">
+                              <td className="py-2 pr-4 font-medium">
+                                <span className={stat.platform === 'INSTAGRAM' ? 'text-pink-500' : stat.platform === 'LINKEDIN' ? 'text-blue-600' : ''}>
+                                  {stat.platform === 'INSTAGRAM' ? 'Instagram' : stat.platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                </span>
+                              </td>
+                              <td className="text-right py-2 px-2">{stat.totalPosts}</td>
+                              <td className="text-right py-2 px-2 font-semibold">{stat.avgEngagement.toFixed(2)}%</td>
+                              <td className="text-right py-2 px-2">{stat.avgLikes.toFixed(0)}</td>
+                              <td className="text-right py-2 px-2">{stat.avgComments.toFixed(0)}</td>
+                              <td className="text-right py-2 px-2">{stat.avgReach.toFixed(0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </CardContent>
                 </Card>
+              )}
+
+              {/* ---- Cross-Platform Post Performance Table ---- */}
+              {combinedInsights?.postTable?.length > 0 ? (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Post Performance</span>
+                      <select
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                        value={postTableSort}
+                        onChange={(e) => setPostTableSort(e.target.value)}
+                      >
+                        <option value="engagement">Sort: Engagement</option>
+                        <option value="likes">Sort: Likes</option>
+                        <option value="reach">Sort: Reach</option>
+                        <option value="date">Sort: Date</option>
+                      </select>
+                    </CardTitle>
+                    <CardDescription>Performance metrics across all published posts and platforms.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {(combinedInsights.postTable as any[])
+                        .slice()
+                        .sort((a: any, b: any) => {
+                          if (postTableSort === 'date') return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+                          const getVal = (p: any, key: string) => {
+                            if (!p.platformInsights?.length) return 0;
+                            return Math.max(...p.platformInsights.map((i: any) => i[key] ?? 0));
+                          };
+                          if (postTableSort === 'likes') return getVal(b, 'likes') - getVal(a, 'likes');
+                          if (postTableSort === 'reach') return getVal(b, 'reach') - getVal(a, 'reach');
+                          return getVal(b, 'engagement') - getVal(a, 'engagement');
+                        })
+                        .map((post: any) => (
+                          <div key={post.postId} className="rounded-lg border p-3">
+                            <p className="text-sm font-medium mb-1 line-clamp-2">{post.caption}</p>
+                            {post.account && (
+                              <p className="text-xs text-muted-foreground mb-2">@{post.account.username} · {post.account.accountType === 'INSTAGRAM' ? 'Instagram' : post.account.accountType === 'LINKEDIN' ? 'LinkedIn' : 'X'}</p>
+                            )}
+                            {post.platformInsights?.length > 0 ? (
+                              <div className="space-y-2">
+                                {(post.platformInsights as any[]).map((ins: any) => (
+                                  <div key={ins.platform} className="bg-muted/40 rounded p-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className={`text-xs font-semibold ${ins.platform === 'INSTAGRAM' ? 'text-pink-500' : ins.platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                        {ins.platform === 'INSTAGRAM' ? 'Instagram' : ins.platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                      </span>
+                                      <span className="text-xs font-bold text-foreground">{ins.engagement.toFixed(1)}% eng.</span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1 text-center">
+                                      <div>
+                                        <div className="text-sm font-semibold">{(ins.reach || ins.impressions || 0).toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">{ins.reach > 0 ? 'Reach' : 'Impr.'}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-semibold">{ins.likes.toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">Likes</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-semibold">{ins.comments.toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">Comments</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-semibold">{(ins.saves || ins.bookmarks || 0).toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">Saves</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs text-muted-foreground">No insights data yet.</p>
+                                <Button variant="ghost" size="sm" onClick={() => refreshPostInsights(post.postId)} disabled={isFetchingInsights}>
+                                  <RefreshCw className={`h-3 w-3 ${isFetchingInsights ? 'animate-spin' : ''}`} />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : posts.filter(p => p.status === 'PUBLISHED').length > 0 && !combinedInsights && (
+                <Card className="mb-6">
+                  <CardContent className="text-center py-8">
+                    <p className="text-muted-foreground mb-3">Load insights to see cross-platform post performance.</p>
+                    <Button variant="outline" onClick={() => fetchCombinedInsights(insightsPlatformFilter)} disabled={isLoadingCombined}>
+                      {isLoadingCombined ? 'Loading...' : 'Load Insights'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ---- What's Working (8c) ---- */}
+              {combinedInsights && (
+                <div className="mb-6 space-y-4">
+                  <h3 className="text-lg font-semibold">What's Working</h3>
+
+                  {/* Top performers per platform */}
+                  {Object.keys(combinedInsights.topByPlatform ?? {}).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Top Performing Posts</CardTitle>
+                        <CardDescription>Your highest-engagement posts by platform.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {Object.entries(combinedInsights.topByPlatform).map(([platform, topPosts]: [string, any]) => (
+                            <div key={platform}>
+                              <p className={`text-sm font-semibold mb-2 ${platform === 'INSTAGRAM' ? 'text-pink-500' : platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                {platform === 'INSTAGRAM' ? 'Instagram' : platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                              </p>
+                              <div className="space-y-2">
+                                {(topPosts as any[]).map((post: any, i: number) => (
+                                  <div key={post.postId || i} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                                    <span className="flex-1 mr-4 text-xs line-clamp-1">{post.captionSnippet}</span>
+                                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                                      <span>{post.likes?.toLocaleString()} likes</span>
+                                      <span className="font-semibold text-foreground">{post.engagement.toFixed(1)}%</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Hashtag performance */}
+                  {(combinedInsights.summary?.hashtagAnalysis?.recommendedHashtags?.length > 0 ||
+                    combinedInsights.summary?.hashtagAnalysis?.avoidHashtags?.length > 0) && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Hashtag Signals</CardTitle>
+                        <CardDescription>Tags correlated with your top and lowest performing posts.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {combinedInsights.summary.hashtagAnalysis.recommendedHashtags?.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-green-700 mb-1">Recommended (appear in top posts)</p>
+                            <div className="flex flex-wrap gap-1">
+                              {combinedInsights.summary.hashtagAnalysis.recommendedHashtags.map((tag: string) => (
+                                <span key={tag} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-green-50 text-green-700 border border-green-200">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {combinedInsights.summary.hashtagAnalysis.avoidHashtags?.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-red-700 mb-1">Avoid (appear only in low-performers)</p>
+                            <div className="flex flex-wrap gap-1">
+                              {combinedInsights.summary.hashtagAnalysis.avoidHashtags.map((tag: string) => (
+                                <span key={tag} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-red-50 text-red-700 border border-red-200">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Best posting times per platform */}
+                  {Object.keys(combinedInsights.timingByPlatform ?? {}).some(
+                    (pl) => (combinedInsights.timingByPlatform[pl] as any[]).length > 0
+                  ) && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Best Posting Times</CardTitle>
+                        <CardDescription>Hours and days correlated with your highest engagement (UTC).</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {Object.entries(combinedInsights.timingByPlatform).map(([platform, slots]: [string, any]) => {
+                            if (!slots?.length) return null;
+                            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                            return (
+                              <div key={platform}>
+                                <p className={`text-sm font-semibold mb-2 ${platform === 'INSTAGRAM' ? 'text-pink-500' : platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                  {platform === 'INSTAGRAM' ? 'Instagram' : platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {(slots as any[]).slice(0, 3).map((slot: any, i: number) => (
+                                    <div key={i} className="rounded border px-3 py-1.5 text-center text-xs">
+                                      <div className="font-semibold">{days[slot.dayOfWeek]} {slot.hour}:00</div>
+                                      <div className="text-muted-foreground">{slot.avgEngagement.toFixed(1)}% avg</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Content type breakdown */}
+                  {combinedInsights.summary?.contentTypeBreakdown?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Content Type Performance</CardTitle>
+                        <CardDescription>Average engagement by content format.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-4">
+                          {combinedInsights.summary.contentTypeBreakdown.map((ct: any) => (
+                            <div key={ct.type} className="rounded-lg border p-3 text-center min-w-[100px]">
+                              <div className="text-xl font-bold">{ct.avgEngagement.toFixed(1)}%</div>
+                              <div className="text-xs font-medium">{ct.type === 'BLOG_POST' ? 'Blog Post' : ct.type.charAt(0) + ct.type.slice(1).toLowerCase()}</div>
+                              <div className="text-xs text-muted-foreground">{ct.count} posts</div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
               )}
 
               {/* AI Recommendations Section */}
