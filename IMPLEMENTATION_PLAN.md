@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
-**Last Updated**: April 2, 2026
-**Status**: Phases 1–3 Implemented, Testing In Progress
+**Last Updated**: April 5, 2026
+**Status**: Phases 1–3 Implemented, Phase 4 Planned
 
 ---
 
@@ -144,26 +144,238 @@ A social media management tool built with Next.js, Prisma, PostgreSQL (Supabase)
 
 ---
 
-## Phase 4: Future Enhancements (Planned)
+## Phase 4: Multi-Platform Expansion & Combined Insights (Planned)
 
-### Feature 6: Advanced AI Content Generation
-- Google Nano Banana integration for AI video generation (pending API details)
+The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate performance data from all connected platforms into a unified insights experience that actively helps users understand what is working, what is not, and how to improve it. Every feature should serve the north-star goal of **increasing engagement through data-driven refinement**.
+
+---
+
+### Feature 6: LinkedIn & X Account Connection
+
+**What to build:**
+
+**Database / schema changes**
+- Add `LINKEDIN` to the `AccountType` enum (X already exists; Bluesky is deferred)
+- Add `linkedinUserId`, `linkedinOrganizationId` (optional — for company page posting) columns to `SocialMediaAccount`
+- Add `xUserId` column to `SocialMediaAccount` for the Twitter/X numeric user ID
+- Add `platformPostId` to `ContentPost` (nullable String) — generic field alongside existing `igMediaId` to store the native post ID returned by each platform after publishing
+
+**LinkedIn OAuth (OAuth 2.0 with PKCE)**
+- Scopes required: `openid`, `profile`, `email`, `w_member_social`, `r_basicprofile`, `r_organization_social` (for org pages)
+- Callback endpoint: `/api/auth/linkedin/callback`
+- Store: access token (encrypted), token expiry, LinkedIn member URN (`urn:li:person:{id}`)
+- Token refresh: LinkedIn access tokens last 60 days; surface a re-connect prompt when < 7 days remain
+- UI: "Connect LinkedIn" button in the Accounts section, same pattern as existing Instagram connect flow
+
+**X (Twitter) OAuth (OAuth 2.0 with PKCE)**
+- Scopes required: `tweet.read`, `tweet.write`, `users.read`, `offline.access`
+- Callback endpoint: `/api/auth/x/callback`
+- Store: access token (encrypted), refresh token (encrypted), token expiry, X user ID
+- Token refresh: X uses refresh tokens (rotate on each use); implement `/api/auth/x/refresh`
+- UI: "Connect X" button in the Accounts section
+
+**Key files to create / modify:**
+- `src/pages/api/auth/linkedin/connect.ts` — initiate LinkedIn OAuth
+- `src/pages/api/auth/linkedin/callback.ts` — exchange code, store tokens
+- `src/pages/api/auth/x/connect.ts` — initiate X OAuth 2.0 PKCE
+- `src/pages/api/auth/x/callback.ts` — exchange code, store tokens
+- `src/pages/api/auth/x/refresh.ts` — refresh X access token
+- `src/lib/linkedin-client.ts` — LinkedIn API wrapper
+- `src/lib/x-client.ts` — X API v2 wrapper
+- `prisma/schema.prisma` — enum + column additions
+- `src/pages/dashboard.tsx` — account connection UI updates
+
+**Migration:** new migration for AccountType enum update and new columns
+
+---
+
+### Feature 7: Multi-Platform Publishing
+
+**What to build:**
+
+**LinkedIn publishing**
+- Text posts (up to 3,000 characters)
+- Single image posts (`ugcPosts` API with `shareMediaCategory: IMAGE`)
+- Multi-image posts (up to 20 images via LinkedIn carousel UGC post)
+- Character limit validation: 3,000 chars for personal, 700 chars for company pages
+- Hashtag support (no hard limit, but 3–5 recommended — surface this as a lint warning)
+- Endpoint: `POST /api/social-media-accounts/[id]/post` — extend existing handler with a `platform` branch for `LINKEDIN`
+
+**X (Twitter) publishing**
+- Text tweets (up to 280 characters)
+- Tweets with media (up to 4 images, or 1 video via X Media Upload API v1.1)
+- Thread support: if caption > 280 chars, offer to auto-split into a numbered thread
+- Character limit validation: 280 chars (23 chars consumed by any URL/media)
+- Extend existing post endpoint with an `X` platform branch
+
+**Unified post creation UI**
+- "Post to" selector in the create-post dialog: Instagram, LinkedIn, X, or any combination (multi-select)
+- Per-platform preview pane showing how the post will render (character count, truncation warnings)
+- Platform-specific warnings shown inline (e.g., "LinkedIn ignores hashtags beyond 5", "This tweet will be split into a 3-part thread")
+- `ContentPost.targetPlatforms` — new `String[]` field storing which platforms a post targets
+- After publishing, store `platformPostId` per platform (may require a `PostPublication` join table if publishing to multiple platforms in one go)
+
+**Scheduler updates**
+- `scheduler/run.ts` — extend to publish scheduled posts to LinkedIn and X in addition to Instagram
+- Respect per-platform token validity before attempting publish; skip + log if token expired
+
+**Key files to create / modify:**
+- `src/pages/api/social-media-accounts/[id]/post.ts` — LinkedIn + X publish branches
+- `src/lib/linkedin-client.ts` — `publishPost(account, postData)` implementation
+- `src/lib/x-client.ts` — `publishTweet(account, postData)`, `uploadMedia(account, buffer)`, `publishThread(account, tweets)` implementation
+- `src/pages/dashboard.tsx` — multi-platform post creation UI
+- `src/pages/api/scheduler/run.ts` — multi-platform scheduler
+- `prisma/schema.prisma` — `targetPlatforms` field, `PostPublication` model (optional)
+
+---
+
+### Feature 8: Combined Insights Tab & Post Refinement Engine
+
+The core of Phase 4. A single tab that aggregates performance data from all connected accounts and uses it to tell the user exactly what to do next to improve engagement.
+
+**What to build:**
+
+#### 8a: Cross-Platform Metrics Collection
+
+**Instagram (existing, extend)**
+- Already fetches impressions, reach, likes, comments, shares, saves, engagement rate
+- Add: profile visits per post, link clicks, story exits (where available from API)
+
+**LinkedIn metrics**
+- Post: impressions, clicks, reactions (LIKE, CELEBRATE, etc.), comments, shares, CTR, engagement rate
+- Account: follower count, follower growth, profile views, unique impressions
+- Fetch via LinkedIn Marketing API (`organizationalEntityShareStatistics`, `shareStatistics`)
+- Store in `PostInsight` (extend with `platform` discriminator) and `AccountInsight`
+
+**X metrics**
+- Tweet: impressions, likes, retweets, replies, quotes, link clicks, profile visits, engagement rate
+- Account: follower count, following, tweet count
+- Fetch via X API v2 `GET /2/tweets/:id` with `tweet.fields=public_metrics,non_public_metrics`
+- Store in `PostInsight` and `AccountInsight` (same models, add `platform` column)
+
+**Schema changes**
+- Add `platform` String column to `PostInsight` and `AccountInsight` (e.g., `"INSTAGRAM"`, `"LINKEDIN"`, `"X"`)
+- Add `platformPostId` String? to `PostInsight` for cross-referencing
+- Add extended metric columns to `PostInsight`: `clicks Int?`, `profileVisits Int?`, `linkClicks Int?`
+- Add `followerGrowth Int?` to `AccountInsight` (delta since last fetch)
+
+#### 8b: Combined Insights Dashboard UI
+
+**Account overview strip**
+- Row of cards, one per connected account (Instagram, LinkedIn, X)
+- Each card: platform icon, username, follower count, follower growth (delta), last-fetched timestamp
+- "Refresh All" button — triggers fetch across all platforms in parallel
+
+**Cross-platform post performance table**
+- All published posts across all platforms in a single sortable/filterable table
+- Columns: thumbnail, caption preview, platform badge, date, impressions, engagement rate, likes, comments, shares
+- Sort by engagement rate descending by default
+- Filter by platform, date range, content type
+
+**Platform comparison charts**
+- Engagement rate over time per platform (line chart)
+- Best posting days/times per platform (heat-map grid: day × hour, colored by avg engagement)
+- Content type breakdown (IMAGE vs VIDEO vs text-only) by platform
+
+#### 8c: What's Working Analysis
+
+Surfaces patterns from top-performing posts to guide future content decisions.
+
+**Top performers panel**
+- Top 5 posts per platform by engagement rate (last 30/90 days, switchable)
+- For each: thumbnail, caption, metrics, tags used, day/time posted
+- AI-generated summary: "Your Instagram posts with behind-the-scenes content average 4.2% engagement vs 1.8% for product shots"
+
+**Hashtag performance tracker**
+- Per-platform hashtag usage vs engagement correlation
+- Which hashtags appear in top 20% of posts vs bottom 20%
+- Recommended hashtag sets based on historical data
+
+**Timing insights**
+- Best time to post per platform derived from historical post performance
+- Recommended posting schedule: "Post on Instagram Tuesday 7–9 PM, LinkedIn Wednesday 8–10 AM, X Thursday 12–2 PM"
+- Shown as a weekly calendar overlay suggestion
+
+**Content-type signals**
+- VIDEO vs IMAGE vs text-only performance comparison per platform
+- Average engagement rate, reach, and saves per content type
+
+#### 8d: What's Not Working Analysis
+
+Identifies underperformers and diagnoses causes.
+
+**Underperformers panel**
+- Bottom 20% of posts by engagement rate in the last 90 days
+- Grouped by likely cause (detected patterns): low reach, high impressions / low engagement, good reach / no saves
+- Failure mode tags: "Caption too long", "Too many hashtags", "No call to action", "Posted off-peak", "Low-quality image"
+
+**Caption quality linter**
+- Pre-publish (integrated into create-post dialog) and post-publish analysis
+- Rules: CTA presence, question mark (drives comments), readability score, hashtag count vs platform norm, link in bio mention for Instagram
+- Red/yellow/green score with specific suggestions
+
+**Decline alerts**
+- If follower growth rate or avg engagement rate drops > 20% week-over-week, surface a banner in the Insights tab
+- Suggested actions: "Your X engagement dropped 35% this week. Your last 3 posts had no images — try adding media."
+
+#### 8e: Post Refinement Suggestions (AI-Powered)
+
+AI uses the aggregated performance data as context to give specific, actionable improvement suggestions.
+
+**Caption refinement**
+- Rewrite a past underperforming post's caption using AI (using the post's actual metrics as context: "This got 0.4% engagement, which is below your 2.1% average")
+- Tone options: casual, professional, storytelling, direct CTA
+- Platform-appropriate rewrite (280 chars for X, long-form for LinkedIn)
+
+**Media quality suggestions**
+- If `PostInsight.engagement` is low but `PostInsight.impressions` is high (people saw it but didn't engage), suggest media improvement: brighter image, stronger thumbnail, add text overlay
+- Link to AI image generation tool pre-seeded with the original post context
+
+**Tag optimization**
+- Replace underperforming hashtags with suggested alternatives based on historical data
+- Cross-platform: suggest LinkedIn topics, X cashtags for financial content, etc.
+
+**Timing optimizer**
+- One-click "Schedule for best time" in the create-post dialog — automatically selects the platform-specific optimal posting window based on historical data
+
+**A/B test tracker**
+- User can mark two posts as an "A/B pair" (same content, different caption/image/time)
+- Insights tab shows side-by-side comparison after 48 hours
+
+**Refinement history**
+- Log of suggestions accepted/rejected, with outcome tracking (did engagement improve after acting on a suggestion?)
+
+**Key files to create / modify:**
+- `src/pages/api/insights/linkedin-insights.ts` — fetch LinkedIn post + account metrics
+- `src/pages/api/insights/x-insights.ts` — fetch X tweet + account metrics
+- `src/pages/api/insights/fetch-all.ts` — extend to fetch LinkedIn + X metrics in the cron
+- `src/pages/api/ai/refine-post.ts` — AI caption/media/tag refinement endpoint
+- `src/pages/api/insights/ab-tests.ts` — A/B pair tracking
+- `src/lib/performance-analyzer.ts` — extend with cross-platform aggregation
+- `src/pages/dashboard.tsx` — redesigned Insights tab (combined view, charts, refinement UI)
+- `prisma/schema.prisma` — schema additions (platform column, extended metrics, ABTest model)
+
+**New migrations:**
+- Add `platform` to `PostInsight` + `AccountInsight`
+- Add extended metric columns
+- Add `ABTest` model
+
+---
+
+## Phase 5: Future Enhancements (Planned)
+
+### Feature 9: Advanced AI Content Generation
+- AI video generation (pending suitable API availability)
 - Enhanced image generation options (style presets, aspect ratios)
-- Brand voice customization for caption generation
+- Brand voice customization: save a brand voice profile that all AI-generated captions conform to
 - Image-to-video conversion
 
-### Feature 7: Multi-Platform Support
-- Bluesky posting integration
-- X (Twitter) posting integration
-- Platform-specific validation (character limits, media limits)
-- Cross-platform scheduling and analytics
-
-### Feature 8: Production Polish
-- End-to-end testing
-- Performance optimization (query optimization, caching)
-- Enhanced error notifications
+### Feature 10: Production Polish
+- End-to-end testing suite
+- Performance optimization (query optimization, pagination, caching layer)
+- Enhanced error notifications (email/push alerts for failed scheduled posts)
 - Security audit
-- Analytics dashboards with charts and trends
+- Trend charts and sparklines throughout the insights UI
 
 ---
 
@@ -190,6 +402,13 @@ A social media management tool built with Next.js, Prisma, PostgreSQL (Supabase)
 - `Contact` — outreach contacts (igUsername, niche, location, followerCount, engagementRate, status)
 - `OutreachMessage` — messages to contacts (messageBody, templateName, status, timestamps)
 - `OutreachCriteria` — saved search criteria (searchTerms, locations, niches, follower range)
+
+### Phase 4 Models (Planned)
+- `PostInsight` — extend: add `platform String`, `clicks Int?`, `profileVisits Int?`, `linkClicks Int?`, `platformPostId String?`
+- `AccountInsight` — extend: add `platform String`, `followerGrowth Int?`
+- `SocialMediaAccount` — extend: add `linkedinUserId String?`, `linkedinOrganizationId String?`, `xUserId String?`, `platformPostId String?`
+- `ContentPost` — extend: add `targetPlatforms String[]`, `platformPostId String?`
+- `ABTest` — A/B test pair (postAId, postBId, notes, comparedAt)
 
 ---
 
@@ -228,6 +447,25 @@ A social media management tool built with Next.js, Prisma, PostgreSQL (Supabase)
 
 ### Scheduler
 - `POST /api/scheduler/run` — daily cron (publish scheduled posts, fetch insights)
+
+### Phase 4 Endpoints (Planned)
+**Auth**
+- `GET /api/auth/linkedin/connect` — initiate LinkedIn OAuth
+- `GET /api/auth/linkedin/callback` — LinkedIn token exchange + store
+- `GET /api/auth/x/connect` — initiate X OAuth 2.0 PKCE
+- `GET /api/auth/x/callback` — X token exchange + store
+- `POST /api/auth/x/refresh` — rotate X access token
+
+**Insights (extended)**
+- `GET/POST /api/insights/linkedin-insights` — stored/fresh LinkedIn metrics
+- `GET/POST /api/insights/x-insights` — stored/fresh X metrics
+
+**AI Refinement**
+- `POST /api/ai/refine-post` — AI caption/tag/timing refinement with performance context
+
+**A/B Testing**
+- `GET/POST /api/insights/ab-tests` — manage A/B test pairs
+- `GET /api/insights/ab-tests/[id]` — comparison results for a pair
 
 ---
 
