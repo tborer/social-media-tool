@@ -27,24 +27,29 @@ model User {
 }
 
 model SocialMediaAccount {
-  id             String        @id @default(uuid())
-  username       String
-  accessToken    String
-  isEncrypted    Boolean       @default(false)
-  tokenExpiresAt DateTime?
-  accountType    AccountType   @default(INSTAGRAM)
-  userId         String        @db.Uuid
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  contentPosts     ContentPost[]
-  accountInsights  AccountInsight[]
+  id                     String        @id @default(uuid())
+  username               String
+  accessToken            String
+  refreshToken           String?       // Used by X (rotated on each use, encrypted)
+  isEncrypted            Boolean       @default(false)
+  tokenExpiresAt         DateTime?
+  accountType            AccountType   @default(INSTAGRAM)
+  linkedinUserId         String?       // LinkedIn member URN, e.g. "urn:li:person:{id}"
+  linkedinOrganizationId String?       // LinkedIn org URN for company page posting (optional)
+  xUserId                String?       // X numeric user ID
+  userId                 String        @db.Uuid
+  user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  contentPosts           ContentPost[]
+  accountInsights        AccountInsight[]
 
   @@unique([userId, username, accountType])
 }
 
 enum AccountType {
   INSTAGRAM
+  LINKEDIN
   BLUESKY
   X
 }

@@ -26,7 +26,10 @@ type SocialMediaAccount = {
   id: string;
   username: string;
   accessToken: string;
-  accountType: "INSTAGRAM" | "BLUESKY" | "X";
+  accountType: "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X";
+  tokenExpiresAt?: string | null;
+  linkedinUserId?: string | null;
+  xUserId?: string | null;
 };
 
 type ContentPost = {
@@ -112,9 +115,10 @@ function EditAccountForm({ account, onSuccess }: { account: SocialMediaAccount; 
             id="edit-account-type"
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             value={formData.accountType}
-            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "BLUESKY" | "X"})}
+            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X"})}
           >
             <option value="INSTAGRAM">Instagram</option>
+            <option value="LINKEDIN">LinkedIn</option>
             <option value="BLUESKY">Bluesky</option>
             <option value="X">X</option>
           </select>
@@ -166,7 +170,7 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<SocialMediaAccount[]>([]);
   const [posts, setPosts] = useState<ContentPost[]>([]);
   const [isAddingAccount, setIsAddingAccount] = useState(false);
-  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "BLUESKY" | "X" });
+  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" });
   const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [newPost, setNewPost] = useState({
     caption: "",
@@ -1227,9 +1231,10 @@ export default function Dashboard() {
                           id="account-type"
                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           value={newAccount.accountType}
-                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "BLUESKY" | "X"})}
+                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X"})}
                         >
                           <option value="INSTAGRAM">Instagram</option>
+                          <option value="LINKEDIN">LinkedIn</option>
                           <option value="BLUESKY">Bluesky</option>
                           <option value="X">X</option>
                         </select>
@@ -1255,6 +1260,54 @@ export default function Dashboard() {
                           </Button>
                           <p className="text-xs text-muted-foreground text-center">
                             Secure OAuth 2.0 authentication
+                          </p>
+                        </div>
+                      )}
+
+                      {newAccount.accountType === "LINKEDIN" && (
+                        <div className="grid gap-3 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                            <span className="font-medium">LinkedIn OAuth</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Connect your LinkedIn account securely using OAuth. Access tokens are valid for 60 days and you will be prompted to reconnect when they expire.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              window.location.href = '/api/auth/linkedin/connect?returnUrl=/dashboard';
+                            }}
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                          >
+                            <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                            Connect with LinkedIn
+                          </Button>
+                          <p className="text-xs text-muted-foreground text-center">
+                            Secure OAuth 2.0 authentication
+                          </p>
+                        </div>
+                      )}
+
+                      {newAccount.accountType === "X" && (
+                        <div className="grid gap-3 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                            <span className="font-medium">X (Twitter) OAuth</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Connect your X account securely using OAuth 2.0 with PKCE. Access tokens are automatically refreshed using a refresh token.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              window.location.href = '/api/auth/x/connect?returnUrl=/dashboard';
+                            }}
+                            className="w-full bg-black hover:bg-gray-900"
+                          >
+                            <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                            Connect with X
+                          </Button>
+                          <p className="text-xs text-muted-foreground text-center">
+                            Secure OAuth 2.0 with PKCE
                           </p>
                         </div>
                       )}
@@ -1312,16 +1365,60 @@ export default function Dashboard() {
                       <CardHeader>
                         <CardTitle className="flex items-center">
                           {account.accountType === "INSTAGRAM" && <Instagram className="h-5 w-5 mr-2 text-pink-500" />}
+                          {account.accountType === "LINKEDIN" && <svg className="h-5 w-5 mr-2 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>}
                           {account.accountType === "BLUESKY" && <svg className="h-5 w-5 mr-2 text-blue-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/><path d="M13 7h-2v6h6v-2h-4z"/></svg>}
                           {account.accountType === "X" && <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>}
                           {account.username}
                         </CardTitle>
                         <CardDescription>
-                          {account.accountType === "INSTAGRAM" ? "Instagram" : 
-                           account.accountType === "BLUESKY" ? "Bluesky" : "X"}
+                          {account.accountType === "INSTAGRAM" ? "Instagram" :
+                           account.accountType === "LINKEDIN" ? "LinkedIn" :
+                           account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"}
                         </CardDescription>
+                        {account.tokenExpiresAt && (() => {
+                          const expiresAt = new Date(account.tokenExpiresAt!);
+                          const now = new Date();
+                          const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                          if (expiresAt <= now) {
+                            return (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">Token expired — reconnect required</span>
+                              </div>
+                            );
+                          }
+                          if (daysLeft <= 7) {
+                            return (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Token expires in {daysLeft} day{daysLeft !== 1 ? 's' : ''}</span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </CardHeader>
-                      <CardFooter className="flex justify-between">
+                      <CardFooter className="flex flex-wrap gap-2 justify-between">
+                        {(account.accountType === "LINKEDIN" || account.accountType === "X" || account.accountType === "INSTAGRAM") && (() => {
+                          const connectPath =
+                            account.accountType === "LINKEDIN" ? "/api/auth/linkedin/connect" :
+                            account.accountType === "X" ? "/api/auth/x/connect" :
+                            "/api/auth/instagram/connect";
+                          const expiresAt = account.tokenExpiresAt ? new Date(account.tokenExpiresAt) : null;
+                          const isExpiredOrExpiring = expiresAt && expiresAt <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                          if (!isExpiredOrExpiring) return null;
+                          return (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              onClick={() => {
+                                window.location.href = `${connectPath}?returnUrl=/dashboard`;
+                              }}
+                            >
+                              <RefreshCw className="h-4 w-4 mr-2" /> Reconnect
+                            </Button>
+                          );
+                        })()}
+                        <div className="flex gap-2 ml-auto">
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm">
@@ -1344,7 +1441,7 @@ export default function Dashboard() {
                             }} />
                           </DialogContent>
                         </Dialog>
-                        
+
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button variant="destructive" size="sm">
@@ -1355,8 +1452,9 @@ export default function Dashboard() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
+                                This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" :
+                                account.accountType === "LINKEDIN" ? "LinkedIn" :
+                                account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
                                 This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -1379,8 +1477,9 @@ export default function Dashboard() {
                                     
                                     toast({
                                       title: "Success",
-                                      description: `${account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                      account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
+                                      description: `${account.accountType === "INSTAGRAM" ? "Instagram" :
+                                      account.accountType === "LINKEDIN" ? "LinkedIn" :
+                                      account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
                                     });
                                   } catch (error) {
                                     toast({
@@ -1397,6 +1496,7 @@ export default function Dashboard() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                        </div>
                       </CardFooter>
                     </Card>
                   ))}
@@ -1859,7 +1959,7 @@ export default function Dashboard() {
                                           {accounts.map((account) => (
                                             <option key={account.id} value={account.id}>
                                               {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                               account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                                               account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                             </option>
                                           ))}
                                         </select>
@@ -2149,7 +2249,7 @@ export default function Dashboard() {
                                             {accounts.map((account) => (
                                               <option key={account.id} value={account.id}>
                                                 {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                                 account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                                                 account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                               </option>
                                             ))}
                                           </select>
@@ -3821,7 +3921,7 @@ export default function Dashboard() {
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" :
-                         account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                         account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                       </option>
                     ))}
                   </select>
