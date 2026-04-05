@@ -58,6 +58,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       cookies: Object.keys(req.cookies || {}),
     });
 
+    // Validate required environment variables before proceeding
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      logger.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
+      return res.status(500).json({ error: 'Server configuration error: missing Supabase URL.' });
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      logger.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+      return res.status(500).json({ error: 'Server configuration error: missing Supabase service role key.' });
+    }
+
     const supabase = createClient(req, res);
     const { data, error: authError } = await supabase.auth.getUser();
     const user = data?.user;
@@ -227,6 +237,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
+
+        // Ensure the 'uploads' bucket exists; create it if missing
+        try {
+          const { data: bucket, error: getBucketError } = await supabaseAdmin.storage.getBucket('uploads');
+          if (getBucketError || !bucket) {
+            logger.info('uploads bucket not found, attempting to create it', { userId: user.id });
+            const { error: createBucketError } = await supabaseAdmin.storage.createBucket('uploads', {
+              public: true,
+              fileSizeLimit: MAX_VIDEO_SIZE_BYTES,
+              allowedMimeTypes: Array.from(ALLOWED_FILE_TYPES),
+            });
+            if (createBucketError) {
+              logger.error('Failed to create uploads bucket:', createBucketError, { userId: user.id });
+              // Proceed anyway — the bucket might already exist despite the getBucket error
+            } else {
+              logger.info('uploads bucket created successfully', { userId: user.id });
+            }
+          }
+        } catch (bucketCheckError: any) {
+          // Non-fatal — attempt the upload regardless
+          logger.warn('Error checking/creating uploads bucket:', bucketCheckError?.message, { userId: user.id });
+        }
+
         const uploadResult = await supabaseAdmin.storage.from('uploads').upload(storagePath, buffer, {
           contentType: mimeType,
           cacheControl: '3600',
@@ -235,12 +268,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         if ((uploadResult as any)?.error) {
           const err: any = (uploadResult as any).error;
-          logger.error('Supabase storage upload error:', err, { userId: user.id });
+          const supabaseErrMsg = err?.message || err?.error || JSON.stringify(err) || 'Unknown error';
+          logger.error('Supabase storage upload error:', { error: supabaseErrMsg, statusCode: err?.statusCode, userId: user.id });
 
           await prisma.log.update({
             where: { id: logEntry.id },
             data: {
-              error: `Supabase upload failed: ${err.message || 'Unknown error'}`,
+              error: `Supabase upload failed: ${supabaseErrMsg}`,
               status: 500,
             },
           });
