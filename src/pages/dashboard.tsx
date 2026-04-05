@@ -352,25 +352,32 @@ export default function Dashboard() {
       return;
     }
 
-    // Instagram caption validation
-    if (newPost.caption.length > 2200) {
+    // Determine platform-specific caption limit based on selected account
+    const selectedAccount = accounts.find(a => a.id === newPost.socialMediaAccountId);
+    const selectedPlatform = selectedAccount?.accountType ?? 'INSTAGRAM';
+    const captionLimit = selectedPlatform === 'LINKEDIN' ? 3000 : selectedPlatform === 'X' ? null : 2200;
+    const platformName = selectedPlatform === 'LINKEDIN' ? 'LinkedIn' : selectedPlatform === 'X' ? 'X' : 'Instagram';
+
+    if (captionLimit !== null && newPost.caption.length > captionLimit) {
       toast({
         variant: "destructive",
         title: "Caption too long",
-        description: `Caption is ${newPost.caption.length} characters. Instagram allows a maximum of 2,200 characters.`,
+        description: `Caption is ${newPost.caption.length} characters. ${platformName} allows a maximum of ${captionLimit.toLocaleString()} characters.`,
       });
       return;
     }
 
-    // Instagram hashtag limit validation
-    const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
-    if (hashtagCount > 30) {
-      toast({
-        variant: "destructive",
-        title: "Too many hashtags",
-        description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
-      });
-      return;
+    // Hashtag limit — Instagram only (30 max)
+    if (selectedPlatform === 'INSTAGRAM' || !newPost.socialMediaAccountId) {
+      const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+      if (hashtagCount > 30) {
+        toast({
+          variant: "destructive",
+          title: "Too many hashtags",
+          description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
+        });
+        return;
+      }
     }
 
     // Show a loading toast for the operation
@@ -1782,20 +1789,56 @@ export default function Dashboard() {
                           </div>
                           {accounts.length > 0 && (
                             <div className="grid gap-2">
-                              <Label htmlFor="account">Instagram Account</Label>
+                              <Label htmlFor="account">Social Media Account</Label>
                               <select
                                 id="account"
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                 value={newPost.socialMediaAccountId}
                                 onChange={(e) => setNewPost({...newPost, socialMediaAccountId: e.target.value})}
                               >
-                                <option value="">Select an account</option>
+                                <option value="">Select an account (optional for draft)</option>
                                 {accounts.map((account) => (
                                   <option key={account.id} value={account.id}>
-                                    {account.username}
+                                    {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                   </option>
                                 ))}
                               </select>
+                              {/* Per-platform character count and warnings */}
+                              {newPost.socialMediaAccountId && (() => {
+                                const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                if (!acct) return null;
+                                const len = newPost.caption.length;
+                                if (acct.accountType === 'X') {
+                                  const tweetCount = len <= 272 ? 1 : Math.ceil(len / 272);
+                                  const isThread = tweetCount > 1;
+                                  return (
+                                    <div className={`text-xs px-2 py-1 rounded ${isThread ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
+                                      {isThread
+                                        ? `Thread: ~${tweetCount} tweets (caption exceeds 280 chars — will be split automatically)`
+                                        : `${len}/280 characters · X`}
+                                    </div>
+                                  );
+                                }
+                                if (acct.accountType === 'LINKEDIN') {
+                                  const limit = 3000;
+                                  const over = len > limit;
+                                  return (
+                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 2700 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
+                                      {len}/{limit.toLocaleString()} characters · LinkedIn{len > 2700 && !over ? ' (approaching limit)' : ''}
+                                    </div>
+                                  );
+                                }
+                                if (acct.accountType === 'INSTAGRAM') {
+                                  const limit = 2200;
+                                  const over = len > limit;
+                                  return (
+                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 1980 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
+                                      {len}/{limit.toLocaleString()} characters · Instagram{len > 1980 && !over ? ' (approaching limit)' : ''}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           )}
                         </div>

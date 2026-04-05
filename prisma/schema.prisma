@@ -62,10 +62,13 @@ model ContentPost {
   videoType            VideoType?         // Type of video: FEED or REELS (for Instagram)
   status               PostStatus         @default(DRAFT)
   scheduledFor         DateTime?
+  targetPlatforms      String[]           // e.g. ["INSTAGRAM", "LINKEDIN"] — set at creation time
   retryCount           Int                @default(0)
   lastRetryAt          DateTime?
   errorMessage         String?
   igMediaId            String?            // Instagram media ID after publishing
+  linkedinPostId       String?            // LinkedIn post URN after publishing
+  xPostId              String?            // X tweet ID after publishing
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   userId               String             @db.Uuid

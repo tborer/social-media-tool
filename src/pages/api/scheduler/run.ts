@@ -4,6 +4,8 @@ import { logger } from '@/lib/server-logger';
 import { JobLock } from '@/lib/job-lock';
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken } from '@/lib/instagram-token-manager';
+import { decrypt, encrypt, isEncryptionConfigured } from '@/lib/encryption';
+import { refreshAccessToken as refreshXToken, calculateExpirationDate as calcXExpiry } from '@/lib/x-oauth';
 
 const SCHEDULER_LOCK_NAME = 'content_post_scheduler';
 const MAX_RETRY_ATTEMPTS = 3;
@@ -187,6 +189,227 @@ async function postToInstagram(accessToken: string, imageUrl: string, caption: s
   }
 }
 
+// ---------------------------------------------------------------------------
+// LinkedIn scheduler helper
+// ---------------------------------------------------------------------------
+
+async function schedulerPostToLinkedIn(
+  account: any,
+  imageUrl: string | null,
+  caption: string,
+  userId: string
+): Promise<{ success: boolean; postId: string | null }> {
+  // Check token expiry — LinkedIn tokens last 60 days, no refresh token
+  if (account.tokenExpiresAt && new Date(account.tokenExpiresAt) <= new Date()) {
+    throw new Error(
+      `LinkedIn access token expired for account ${account.username}. User must reconnect.`
+    );
+  }
+
+  let accessToken = account.accessToken;
+  if (account.isEncrypted && isEncryptionConfigured()) {
+    accessToken = decrypt(accessToken);
+  }
+
+  if (!account.linkedinUserId) {
+    throw new Error(`LinkedIn member ID missing for account ${account.username}`);
+  }
+
+  const authorUrn = `urn:li:person:${account.linkedinUserId}`;
+  const LINKEDIN_API_VERSION = '202411';
+
+  // Upload image if provided
+  let imageUrn: string | null = null;
+  if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+    try {
+      const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'LinkedIn-Version': LINKEDIN_API_VERSION,
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+        body: JSON.stringify({ initializeUploadRequest: { owner: authorUrn } }),
+      });
+
+      if (initRes.ok) {
+        const initData = await initRes.json();
+        const uploadUrl: string = initData.value.uploadUrl;
+        imageUrn = initData.value.image;
+
+        const imgRes = await fetch(imageUrl);
+        if (imgRes.ok) {
+          const imgBuffer = await imgRes.arrayBuffer();
+          const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+          await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': contentType },
+            body: imgBuffer,
+          });
+        }
+      }
+    } catch (imgErr: any) {
+      logger.warn(`LinkedIn image upload failed in scheduler (continuing without image): ${imgErr.message}`, { userId });
+      imageUrn = null;
+    }
+  }
+
+  const postPayload: any = {
+    author: authorUrn,
+    commentary: caption,
+    visibility: 'PUBLIC',
+    distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
+    lifecycleState: 'PUBLISHED',
+    isReshareDisabledByAuthor: false,
+  };
+  if (imageUrn) {
+    postPayload.content = { media: { altText: 'Post image', id: imageUrn } };
+  }
+
+  const postRes = await fetch('https://api.linkedin.com/rest/posts', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'LinkedIn-Version': LINKEDIN_API_VERSION,
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+    body: JSON.stringify(postPayload),
+  });
+
+  if (!postRes.ok) {
+    const err = await postRes.json().catch(() => ({}));
+    throw new Error(`LinkedIn post failed (${postRes.status}): ${JSON.stringify(err)}`);
+  }
+
+  const linkedinPostId =
+    postRes.headers.get('x-restli-id') || postRes.headers.get('X-RestLi-Id') || null;
+  logger.info(`LinkedIn post published via scheduler: ${linkedinPostId}`, { userId });
+  return { success: true, postId: linkedinPostId };
+}
+
+// ---------------------------------------------------------------------------
+// X scheduler helper
+// ---------------------------------------------------------------------------
+
+function splitIntoTweetsScheduler(text: string, maxLength = 280): string[] {
+  if (text.length <= maxLength) return [text];
+  const SUFFIX_RESERVE = 8;
+  const chunkMax = maxLength - SUFFIX_RESERVE;
+  const chunks: string[] = [];
+  let remaining = text.trim();
+  while (remaining.length > 0) {
+    if (remaining.length <= chunkMax) { chunks.push(remaining); break; }
+    let splitAt = remaining.lastIndexOf(' ', chunkMax);
+    if (splitAt <= 0) splitAt = chunkMax;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (chunks.length === 1) return chunks;
+  return chunks.map((c, i) => `${c} (${i + 1}/${chunks.length})`);
+}
+
+async function schedulerPostToX(
+  account: any,
+  imageUrl: string | null,
+  caption: string,
+  userId: string
+): Promise<{ success: boolean; tweetId: string; tweetIds: string[] }> {
+  // Auto-refresh if token is expired or expiring soon
+  let accessToken = account.accessToken;
+  const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
+  const isExpired = account.tokenExpiresAt && new Date(account.tokenExpiresAt) <= fiveMinutesFromNow;
+
+  if (isExpired) {
+    if (!account.refreshToken) {
+      throw new Error(`X access token expired and no refresh token for account ${account.username}`);
+    }
+    let rawRefreshToken = account.refreshToken;
+    if (account.isEncrypted && isEncryptionConfigured()) {
+      rawRefreshToken = decrypt(rawRefreshToken);
+    }
+    const tokenResponse = await refreshXToken(rawRefreshToken);
+    let newAccessToken = tokenResponse.access_token;
+    let newRefreshToken = tokenResponse.refresh_token ?? null;
+    const isEnc = isEncryptionConfigured();
+    if (isEnc) {
+      newAccessToken = encrypt(tokenResponse.access_token);
+      if (newRefreshToken) newRefreshToken = encrypt(newRefreshToken);
+    }
+    await prisma.socialMediaAccount.update({
+      where: { id: account.id },
+      data: { accessToken: newAccessToken, refreshToken: newRefreshToken, isEncrypted: isEnc, tokenExpiresAt: calcXExpiry(tokenResponse.expires_in) },
+    });
+    accessToken = tokenResponse.access_token;
+  } else if (account.isEncrypted && isEncryptionConfigured()) {
+    accessToken = decrypt(accessToken);
+  }
+
+  // Upload media if image URL is available
+  let mediaId: string | null = null;
+  if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+    try {
+      const imgRes = await fetch(imageUrl);
+      if (imgRes.ok) {
+        const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+        const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+        const totalBytes = imgBuffer.length;
+
+        const initParams = new URLSearchParams({ command: 'INIT', total_bytes: String(totalBytes), media_type: contentType, media_category: 'tweet_image' });
+        const initRes = await fetch('https://upload.twitter.com/1.1/media/upload.json', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: initParams,
+        });
+        if (initRes.ok) {
+          const initData = await initRes.json();
+          const mId = initData.media_id_string as string;
+          const fd = new FormData();
+          fd.append('command', 'APPEND'); fd.append('media_id', mId); fd.append('segment_index', '0');
+          fd.append('media', new Blob([imgBuffer], { type: contentType }), 'upload');
+          await fetch('https://upload.twitter.com/1.1/media/upload.json', { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: fd });
+          const finalParams = new URLSearchParams({ command: 'FINALIZE', media_id: mId });
+          const finalRes = await fetch('https://upload.twitter.com/1.1/media/upload.json', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: finalParams,
+          });
+          if (finalRes.ok) mediaId = mId;
+        }
+      }
+    } catch (mediaErr: any) {
+      logger.warn(`X media upload failed in scheduler (continuing without media): ${mediaErr.message}`, { userId });
+    }
+  }
+
+  const tweets = splitIntoTweetsScheduler(caption);
+  let previousTweetId: string | null = null;
+  const tweetIds: string[] = [];
+
+  for (let i = 0; i < tweets.length; i++) {
+    const body: any = { text: tweets[i] };
+    if (i === 0 && mediaId) body.media = { media_ids: [mediaId] };
+    if (previousTweetId) body.reply = { in_reply_to_tweet_id: previousTweetId };
+
+    const res = await fetch('https://api.twitter.com/2/tweets', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`X tweet ${i + 1}/${tweets.length} failed: ${JSON.stringify(err)}`);
+    }
+    const data = await res.json();
+    previousTweetId = data.data?.id as string;
+    tweetIds.push(previousTweetId);
+  }
+
+  logger.info(`X post published via scheduler (${tweetIds.length} tweet(s))`, { userId });
+  return { success: true, tweetId: tweetIds[0], tweetIds };
+}
+
 // Helper function to check rate limits for an account
 async function checkAccountRateLimit(accountId: string): Promise<{ allowed: boolean; count: number }> {
   const cutoffTime = new Date();
@@ -327,27 +550,46 @@ async function processScheduledPosts(): Promise<{
         // Attempt to publish the post
         logger.info(`Publishing post ${post.id} to ${account.accountType} account ${account.username}`, { userId: post.userId });
 
-        // Get and decrypt access token (with automatic refresh if needed)
-        const accessToken = await getAccessToken(account.id, post.userId);
+        // Get access token (Instagram only — LinkedIn/X handle tokens internally)
+        const accessToken = account.accountType === 'INSTAGRAM'
+          ? await getAccessToken(account.id, post.userId)
+          : '';
 
-        let publishResult = null;
+        // Instagram requires media; LinkedIn/X support text-only posts
+        if (account.accountType === 'INSTAGRAM' && !post.imageUrl) {
+          throw new Error('Instagram posts must have an image or video URL');
+        }
+
+        let publishResult: any = null;
 
         if (account.accountType === 'INSTAGRAM') {
           publishResult = await postToInstagram(
             accessToken,
-            post.imageUrl,
+            post.imageUrl!,
+            post.caption,
+            post.userId
+          );
+        } else if (account.accountType === 'LINKEDIN') {
+          publishResult = await schedulerPostToLinkedIn(
+            account,
+            post.imageUrl ?? null,
+            post.caption,
+            post.userId
+          );
+        } else if (account.accountType === 'X') {
+          publishResult = await schedulerPostToX(
+            account,
+            post.imageUrl ?? null,
             post.caption,
             post.userId
           );
         } else if (account.accountType === 'BLUESKY') {
           throw new Error('Bluesky posting is not yet implemented');
-        } else if (account.accountType === 'X') {
-          throw new Error('X (Twitter) posting is not yet implemented');
         } else {
           throw new Error(`Unknown account type: ${account.accountType}`);
         }
 
-        // Update post status to PUBLISHED
+        // Update post status to PUBLISHED with platform-specific post IDs
         await prisma.contentPost.update({
           where: { id: post.id },
           data: {
@@ -355,8 +597,10 @@ async function processScheduledPosts(): Promise<{
             retryCount: 0,
             lastRetryAt: null,
             errorMessage: null,
-            igMediaId: publishResult?.mediaId || null,
-          }
+            igMediaId:      account.accountType === 'INSTAGRAM' ? (publishResult?.mediaId ?? null) : undefined,
+            linkedinPostId: account.accountType === 'LINKEDIN'  ? (publishResult?.postId  ?? null) : undefined,
+            xPostId:        account.accountType === 'X'         ? (publishResult?.tweetId ?? null) : undefined,
+          },
         });
 
         logger.info(`Successfully published post ${post.id}`, { userId: post.userId });
