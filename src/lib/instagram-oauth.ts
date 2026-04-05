@@ -3,21 +3,37 @@ import { logger } from './logger';
 /**
  * Instagram OAuth 2.0 Helper
  *
- * Handles Instagram OAuth flow and token management
- * Docs: https://developers.facebook.com/docs/instagram-basic-display-api/getting-started
+ * Handles Instagram OAuth flow and token management using the
+ * "Instagram API with Instagram Login" flow (successor to the deprecated
+ * Instagram Basic Display API, which was shut down Dec 4, 2024).
+ *
+ * Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
  *
  * Environment Variables Required:
- * - INSTAGRAM_APP_ID: Your Instagram App ID
+ * - INSTAGRAM_APP_ID: Your Instagram App ID (from Meta app dashboard)
  * - INSTAGRAM_APP_SECRET: Your Instagram App Secret
- * - INSTAGRAM_REDIRECT_URI: OAuth callback URL
+ * - INSTAGRAM_REDIRECT_URI: OAuth callback URL (must match the one configured in Meta app)
  * - NEXT_PUBLIC_APP_URL: Your application URL
  */
 
-const INSTAGRAM_OAUTH_URL = 'https://api.instagram.com/oauth/authorize';
+// NOTE: The authorize dialog lives on www.instagram.com for the current
+// Instagram API with Instagram Login flow. The old api.instagram.com/oauth/authorize
+// endpoint was part of the deprecated Basic Display API and now returns
+// "Invalid platform app" errors.
+const INSTAGRAM_OAUTH_URL = 'https://www.instagram.com/oauth/authorize';
 const INSTAGRAM_TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
 const INSTAGRAM_GRAPH_API_URL = 'https://graph.instagram.com';
 const INSTAGRAM_LONG_LIVED_TOKEN_URL = 'https://graph.instagram.com/access_token';
 const INSTAGRAM_REFRESH_TOKEN_URL = 'https://graph.instagram.com/refresh_access_token';
+
+// Scopes for Instagram API with Instagram Login.
+// These replace the deprecated user_profile / user_media scopes.
+const INSTAGRAM_SCOPES = [
+  'instagram_business_basic',
+  'instagram_business_manage_insights',
+  'instagram_business_content_publish',
+  'instagram_business_manage_comments',
+].join(',');
 
 // Token expiration times
 const SHORT_LIVED_TOKEN_EXPIRY = 60 * 60; // 1 hour in seconds
@@ -74,7 +90,7 @@ export function getAuthorizationUrl(state?: string): string {
   const params = new URLSearchParams({
     client_id: config.appId,
     redirect_uri: config.redirectUri,
-    scope: 'user_profile,user_media',
+    scope: INSTAGRAM_SCOPES,
     response_type: 'code',
     ...(state && { state }),
   });
