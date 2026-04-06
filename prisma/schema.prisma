@@ -27,24 +27,29 @@ model User {
 }
 
 model SocialMediaAccount {
-  id             String        @id @default(uuid())
-  username       String
-  accessToken    String
-  isEncrypted    Boolean       @default(false)
-  tokenExpiresAt DateTime?
-  accountType    AccountType   @default(INSTAGRAM)
-  userId         String        @db.Uuid
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  contentPosts     ContentPost[]
-  accountInsights  AccountInsight[]
+  id                     String        @id @default(uuid())
+  username               String
+  accessToken            String
+  refreshToken           String?       // Used by X (rotated on each use, encrypted)
+  isEncrypted            Boolean       @default(false)
+  tokenExpiresAt         DateTime?
+  accountType            AccountType   @default(INSTAGRAM)
+  linkedinUserId         String?       // LinkedIn member URN, e.g. "urn:li:person:{id}"
+  linkedinOrganizationId String?       // LinkedIn org URN for company page posting (optional)
+  xUserId                String?       // X numeric user ID
+  userId                 String        @db.Uuid
+  user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  contentPosts           ContentPost[]
+  accountInsights        AccountInsight[]
 
   @@unique([userId, username, accountType])
 }
 
 enum AccountType {
   INSTAGRAM
+  LINKEDIN
   BLUESKY
   X
 }
@@ -57,10 +62,13 @@ model ContentPost {
   videoType            VideoType?         // Type of video: FEED or REELS (for Instagram)
   status               PostStatus         @default(DRAFT)
   scheduledFor         DateTime?
+  targetPlatforms      String[]           // e.g. ["INSTAGRAM", "LINKEDIN"] — set at creation time
   retryCount           Int                @default(0)
   lastRetryAt          DateTime?
   errorMessage         String?
   igMediaId            String?            // Instagram media ID after publishing
+  linkedinPostId       String?            // LinkedIn post URN after publishing
+  xPostId              String?            // X tweet ID after publishing
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   userId               String             @db.Uuid
@@ -68,6 +76,22 @@ model ContentPost {
   socialMediaAccountId String?
   socialMediaAccount   SocialMediaAccount? @relation(fields: [socialMediaAccountId], references: [id], onDelete: SetNull)
   postInsights         PostInsight[]
+}
+
+model ABTest {
+  id          String      @id @default(uuid())
+  userId      String      @db.Uuid
+  postAId     String
+  postBId     String
+  notes       String?
+  status      String      @default("active") // active | concluded
+  winnerId    String?     // postAId or postBId
+  createdAt   DateTime    @default(now())
+  comparedAt  DateTime?
+
+  @@index([userId])
+  @@index([postAId])
+  @@index([postBId])
 }
 
 enum PostStatus {
@@ -122,33 +146,42 @@ model UserSettings {
 }
 
 model PostInsight {
-  id          String   @id @default(uuid())
-  postId      String
-  post        ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  impressions Int      @default(0)
-  reach       Int      @default(0)
-  likes       Int      @default(0)
-  comments    Int      @default(0)
-  shares      Int      @default(0)
-  saves       Int      @default(0)
-  engagement  Float    @default(0) // Calculated engagement rate
-  fetchedAt   DateTime @default(now())
+  id             String      @id @default(uuid())
+  postId         String
+  post           ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform       String      @default("INSTAGRAM") // INSTAGRAM | LINKEDIN | X
+  platformPostId String?     // native post/media ID from the platform
+  impressions    Int         @default(0)
+  reach          Int         @default(0)
+  likes          Int         @default(0)
+  comments       Int         @default(0)
+  shares         Int         @default(0)
+  saves          Int         @default(0)
+  clicks         Int         @default(0) // LinkedIn link clicks / X url_link_clicks
+  profileVisits  Int         @default(0) // X user_profile_clicks
+  bookmarks      Int         @default(0) // X bookmark_count
+  engagement     Float       @default(0) // Calculated engagement rate
+  fetchedAt      DateTime    @default(now())
 
   @@index([postId])
+  @@index([platform])
 }
 
 model AccountInsight {
-  id            String             @id @default(uuid())
-  accountId     String
-  account       SocialMediaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  followers     Int                @default(0)
-  following     Int                @default(0)
-  mediaCount    Int                @default(0)
-  profileViews  Int                @default(0)
-  websiteClicks Int                @default(0)
-  fetchedAt     DateTime           @default(now())
+  id             String             @id @default(uuid())
+  accountId      String
+  account        SocialMediaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  platform       String             @default("INSTAGRAM") // INSTAGRAM | LINKEDIN | X
+  followers      Int                @default(0)
+  following      Int                @default(0)
+  mediaCount     Int                @default(0)
+  profileViews   Int                @default(0)
+  websiteClicks  Int                @default(0)
+  followerGrowth Int?               // delta vs previous fetch
+  fetchedAt      DateTime           @default(now())
 
   @@index([accountId])
+  @@index([platform])
 }
 
 enum IdeaStatus {

@@ -26,7 +26,10 @@ type SocialMediaAccount = {
   id: string;
   username: string;
   accessToken: string;
-  accountType: "INSTAGRAM" | "BLUESKY" | "X";
+  accountType: "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X";
+  tokenExpiresAt?: string | null;
+  linkedinUserId?: string | null;
+  xUserId?: string | null;
 };
 
 type ContentPost = {
@@ -112,9 +115,10 @@ function EditAccountForm({ account, onSuccess }: { account: SocialMediaAccount; 
             id="edit-account-type"
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             value={formData.accountType}
-            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "BLUESKY" | "X"})}
+            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X"})}
           >
             <option value="INSTAGRAM">Instagram</option>
+            <option value="LINKEDIN">LinkedIn</option>
             <option value="BLUESKY">Bluesky</option>
             <option value="X">X</option>
           </select>
@@ -166,7 +170,7 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<SocialMediaAccount[]>([]);
   const [posts, setPosts] = useState<ContentPost[]>([]);
   const [isAddingAccount, setIsAddingAccount] = useState(false);
-  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "BLUESKY" | "X" });
+  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" });
   const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [newPost, setNewPost] = useState({
     caption: "",
@@ -202,6 +206,28 @@ export default function Dashboard() {
   const [accountInsights, setAccountInsights] = useState<any[]>([]);
   const [isFetchingInsights, setIsFetchingInsights] = useState(false);
   const [selectedInsightsAccountId, setSelectedInsightsAccountId] = useState<string>("");
+  // Combined cross-platform insights
+  const [combinedInsights, setCombinedInsights] = useState<any>(null);
+  const [isLoadingCombined, setIsLoadingCombined] = useState(false);
+  const [insightsPlatformFilter, setInsightsPlatformFilter] = useState<string>('ALL');
+  const [postTableSort, setPostTableSort] = useState<string>('engagement');
+  // Caption linter (in create-post dialog + insights)
+  const [captionLint, setCaptionLint] = useState<any>(null);
+  const [isLintingCaption, setIsLintingCaption] = useState(false);
+  // Post refinement (8e)
+  const [refinePostId, setRefinePostId] = useState<string>('');
+  const [refineTone, setRefineTone] = useState<string>('casual');
+  const [refineType, setRefineType] = useState<string>('caption');
+  const [refineResult, setRefineResult] = useState<any>(null);
+  const [isRefining, setIsRefining] = useState(false);
+  // A/B tests (8e)
+  const [abTests, setAbTests] = useState<any[]>([]);
+  const [isLoadingABTests, setIsLoadingABTests] = useState(false);
+  const [newABTest, setNewABTest] = useState({ postAId: '', postBId: '', notes: '' });
+  const [isCreatingABTest, setIsCreatingABTest] = useState(false);
+  // Timing optimizer (8e)
+  const [bestTimeResult, setBestTimeResult] = useState<any>(null);
+  const [isLoadingBestTime, setIsLoadingBestTime] = useState(false);
 
   // Discovery state
   const [accountSearchResults, setAccountSearchResults] = useState<any[]>([]);
@@ -348,25 +374,32 @@ export default function Dashboard() {
       return;
     }
 
-    // Instagram caption validation
-    if (newPost.caption.length > 2200) {
+    // Determine platform-specific caption limit based on selected account
+    const selectedAccount = accounts.find(a => a.id === newPost.socialMediaAccountId);
+    const selectedPlatform = selectedAccount?.accountType ?? 'INSTAGRAM';
+    const captionLimit = selectedPlatform === 'LINKEDIN' ? 3000 : selectedPlatform === 'X' ? null : 2200;
+    const platformName = selectedPlatform === 'LINKEDIN' ? 'LinkedIn' : selectedPlatform === 'X' ? 'X' : 'Instagram';
+
+    if (captionLimit !== null && newPost.caption.length > captionLimit) {
       toast({
         variant: "destructive",
         title: "Caption too long",
-        description: `Caption is ${newPost.caption.length} characters. Instagram allows a maximum of 2,200 characters.`,
+        description: `Caption is ${newPost.caption.length} characters. ${platformName} allows a maximum of ${captionLimit.toLocaleString()} characters.`,
       });
       return;
     }
 
-    // Instagram hashtag limit validation
-    const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
-    if (hashtagCount > 30) {
-      toast({
-        variant: "destructive",
-        title: "Too many hashtags",
-        description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
-      });
-      return;
+    // Hashtag limit — Instagram only (30 max)
+    if (selectedPlatform === 'INSTAGRAM' || !newPost.socialMediaAccountId) {
+      const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+      if (hashtagCount > 30) {
+        toast({
+          variant: "destructive",
+          title: "Too many hashtags",
+          description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
+        });
+        return;
+      }
     }
 
     // Show a loading toast for the operation
@@ -1165,6 +1198,159 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch combined cross-platform insights
+  const fetchCombinedInsights = async (platform = 'ALL') => {
+    setIsLoadingCombined(true);
+    try {
+      const response = await fetch(`/api/insights/combined-insights?platform=${platform}`, { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setCombinedInsights(data);
+      }
+    } catch (error) {
+      console.error('Error fetching combined insights:', error);
+    } finally {
+      setIsLoadingCombined(false);
+    }
+  };
+
+  // Refresh LinkedIn/X insights for an account
+  const refreshPlatformAccountInsights = async (accountId: string, platform: 'LINKEDIN' | 'X') => {
+    setIsFetchingInsights(true);
+    try {
+      const endpoint = platform === 'LINKEDIN' ? '/api/insights/linkedin-insights' : '/api/insights/x-insights';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch insights');
+      }
+      toast({ title: "Success", description: `${platform} insights updated` });
+      fetchCombinedInsights(insightsPlatformFilter);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to fetch insights" });
+    } finally {
+      setIsFetchingInsights(false);
+    }
+  };
+
+  // Lint caption quality (8d)
+  const lintCaption = async (caption: string, platform = 'INSTAGRAM') => {
+    if (!caption.trim()) return;
+    setIsLintingCaption(true);
+    try {
+      const response = await fetch('/api/insights/lint-caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption, platform }),
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCaptionLint(data);
+      }
+    } catch (error) {
+      console.error('Caption lint error:', error);
+    } finally {
+      setIsLintingCaption(false);
+    }
+  };
+
+  // AI post refinement (8e)
+  const refinePost = async (postId: string) => {
+    setIsRefining(true);
+    setRefineResult(null);
+    try {
+      const response = await fetch('/api/ai/refine-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId, type: refineType, tone: refineTone }),
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Refinement failed');
+      setRefineResult(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Refinement failed" });
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
+  // Load A/B tests (8e)
+  const loadABTests = async () => {
+    setIsLoadingABTests(true);
+    try {
+      const response = await fetch('/api/insights/ab-tests', { credentials: 'include' });
+      if (response.ok) setAbTests(await response.json());
+    } catch (error) {
+      console.error('Error loading A/B tests:', error);
+    } finally {
+      setIsLoadingABTests(false);
+    }
+  };
+
+  // Create A/B test (8e)
+  const createABTest = async () => {
+    if (!newABTest.postAId || !newABTest.postBId) {
+      toast({ variant: "destructive", title: "Error", description: "Select both Post A and Post B" });
+      return;
+    }
+    try {
+      const response = await fetch('/api/insights/ab-tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newABTest),
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create A/B test');
+      toast({ title: "Success", description: "A/B test created" });
+      setNewABTest({ postAId: '', postBId: '', notes: '' });
+      loadABTests();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed" });
+    }
+  };
+
+  // Mark A/B test winner (8e)
+  const markABWinner = async (testId: string, winnerId: string) => {
+    try {
+      const response = await fetch(`/api/insights/ab-tests?id=${testId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ winnerId }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to update A/B test');
+      toast({ title: "Success", description: "Winner marked" });
+      loadABTests();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed" });
+    }
+  };
+
+  // Timing optimizer — fetch best posting time (8e)
+  const loadBestTime = async (platform?: string, accountId?: string) => {
+    setIsLoadingBestTime(true);
+    setBestTimeResult(null);
+    try {
+      const params = new URLSearchParams();
+      if (platform) params.set('platform', platform);
+      if (accountId) params.set('accountId', accountId);
+      const response = await fetch(`/api/insights/best-time?${params}`, { credentials: 'include' });
+      if (response.ok) setBestTimeResult(await response.json());
+    } catch (error) {
+      console.error('Error loading best time:', error);
+    } finally {
+      setIsLoadingBestTime(false);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-background flex-col">
@@ -1198,7 +1384,7 @@ export default function Dashboard() {
             <TabsList className="mb-6">
               <TabsTrigger value="accounts">Social Media Accounts</TabsTrigger>
               <TabsTrigger value="content">Content Creation</TabsTrigger>
-              <TabsTrigger value="insights">Instagram Insights</TabsTrigger>
+              <TabsTrigger value="insights">Combined Insights</TabsTrigger>
               <TabsTrigger value="outreach">Outreach</TabsTrigger>
               <TabsTrigger value="wordpress">WordPress Blog</TabsTrigger>
               <TabsTrigger value="logging">Logging</TabsTrigger>
@@ -1227,9 +1413,10 @@ export default function Dashboard() {
                           id="account-type"
                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           value={newAccount.accountType}
-                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "BLUESKY" | "X"})}
+                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X"})}
                         >
                           <option value="INSTAGRAM">Instagram</option>
+                          <option value="LINKEDIN">LinkedIn</option>
                           <option value="BLUESKY">Bluesky</option>
                           <option value="X">X</option>
                         </select>
@@ -1255,6 +1442,54 @@ export default function Dashboard() {
                           </Button>
                           <p className="text-xs text-muted-foreground text-center">
                             Secure OAuth 2.0 authentication
+                          </p>
+                        </div>
+                      )}
+
+                      {newAccount.accountType === "LINKEDIN" && (
+                        <div className="grid gap-3 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                            <span className="font-medium">LinkedIn OAuth</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Connect your LinkedIn account securely using OAuth. Access tokens are valid for 60 days and you will be prompted to reconnect when they expire.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              window.location.href = '/api/auth/linkedin/connect?returnUrl=/dashboard';
+                            }}
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                          >
+                            <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                            Connect with LinkedIn
+                          </Button>
+                          <p className="text-xs text-muted-foreground text-center">
+                            Secure OAuth 2.0 authentication
+                          </p>
+                        </div>
+                      )}
+
+                      {newAccount.accountType === "X" && (
+                        <div className="grid gap-3 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                            <span className="font-medium">X (Twitter) OAuth</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Connect your X account securely using OAuth 2.0 with PKCE. Access tokens are automatically refreshed using a refresh token.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              window.location.href = '/api/auth/x/connect?returnUrl=/dashboard';
+                            }}
+                            className="w-full bg-black hover:bg-gray-900"
+                          >
+                            <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                            Connect with X
+                          </Button>
+                          <p className="text-xs text-muted-foreground text-center">
+                            Secure OAuth 2.0 with PKCE
                           </p>
                         </div>
                       )}
@@ -1312,16 +1547,60 @@ export default function Dashboard() {
                       <CardHeader>
                         <CardTitle className="flex items-center">
                           {account.accountType === "INSTAGRAM" && <Instagram className="h-5 w-5 mr-2 text-pink-500" />}
+                          {account.accountType === "LINKEDIN" && <svg className="h-5 w-5 mr-2 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>}
                           {account.accountType === "BLUESKY" && <svg className="h-5 w-5 mr-2 text-blue-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/><path d="M13 7h-2v6h6v-2h-4z"/></svg>}
                           {account.accountType === "X" && <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>}
                           {account.username}
                         </CardTitle>
                         <CardDescription>
-                          {account.accountType === "INSTAGRAM" ? "Instagram" : 
-                           account.accountType === "BLUESKY" ? "Bluesky" : "X"}
+                          {account.accountType === "INSTAGRAM" ? "Instagram" :
+                           account.accountType === "LINKEDIN" ? "LinkedIn" :
+                           account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"}
                         </CardDescription>
+                        {account.tokenExpiresAt && (() => {
+                          const expiresAt = new Date(account.tokenExpiresAt!);
+                          const now = new Date();
+                          const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                          if (expiresAt <= now) {
+                            return (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">Token expired — reconnect required</span>
+                              </div>
+                            );
+                          }
+                          if (daysLeft <= 7) {
+                            return (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Token expires in {daysLeft} day{daysLeft !== 1 ? 's' : ''}</span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </CardHeader>
-                      <CardFooter className="flex justify-between">
+                      <CardFooter className="flex flex-wrap gap-2 justify-between">
+                        {(account.accountType === "LINKEDIN" || account.accountType === "X" || account.accountType === "INSTAGRAM") && (() => {
+                          const connectPath =
+                            account.accountType === "LINKEDIN" ? "/api/auth/linkedin/connect" :
+                            account.accountType === "X" ? "/api/auth/x/connect" :
+                            "/api/auth/instagram/connect";
+                          const expiresAt = account.tokenExpiresAt ? new Date(account.tokenExpiresAt) : null;
+                          const isExpiredOrExpiring = expiresAt && expiresAt <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                          if (!isExpiredOrExpiring) return null;
+                          return (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              onClick={() => {
+                                window.location.href = `${connectPath}?returnUrl=/dashboard`;
+                              }}
+                            >
+                              <RefreshCw className="h-4 w-4 mr-2" /> Reconnect
+                            </Button>
+                          );
+                        })()}
+                        <div className="flex gap-2 ml-auto">
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm">
@@ -1344,7 +1623,7 @@ export default function Dashboard() {
                             }} />
                           </DialogContent>
                         </Dialog>
-                        
+
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button variant="destructive" size="sm">
@@ -1355,8 +1634,9 @@ export default function Dashboard() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
+                                This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" :
+                                account.accountType === "LINKEDIN" ? "LinkedIn" :
+                                account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
                                 This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -1379,8 +1659,9 @@ export default function Dashboard() {
                                     
                                     toast({
                                       title: "Success",
-                                      description: `${account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                      account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
+                                      description: `${account.accountType === "INSTAGRAM" ? "Instagram" :
+                                      account.accountType === "LINKEDIN" ? "LinkedIn" :
+                                      account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
                                     });
                                   } catch (error) {
                                     toast({
@@ -1397,6 +1678,7 @@ export default function Dashboard() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                        </div>
                       </CardFooter>
                     </Card>
                   ))}
@@ -1682,22 +1964,135 @@ export default function Dashboard() {
                           </div>
                           {accounts.length > 0 && (
                             <div className="grid gap-2">
-                              <Label htmlFor="account">Instagram Account</Label>
+                              <Label htmlFor="account">Social Media Account</Label>
                               <select
                                 id="account"
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                 value={newPost.socialMediaAccountId}
                                 onChange={(e) => setNewPost({...newPost, socialMediaAccountId: e.target.value})}
                               >
-                                <option value="">Select an account</option>
+                                <option value="">Select an account (optional for draft)</option>
                                 {accounts.map((account) => (
                                   <option key={account.id} value={account.id}>
-                                    {account.username}
+                                    {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                   </option>
                                 ))}
                               </select>
+                              {/* Per-platform character count and warnings */}
+                              {newPost.socialMediaAccountId && (() => {
+                                const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                if (!acct) return null;
+                                const len = newPost.caption.length;
+                                if (acct.accountType === 'X') {
+                                  const tweetCount = len <= 272 ? 1 : Math.ceil(len / 272);
+                                  const isThread = tweetCount > 1;
+                                  return (
+                                    <div className={`text-xs px-2 py-1 rounded ${isThread ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
+                                      {isThread
+                                        ? `Thread: ~${tweetCount} tweets (caption exceeds 280 chars — will be split automatically)`
+                                        : `${len}/280 characters · X`}
+                                    </div>
+                                  );
+                                }
+                                if (acct.accountType === 'LINKEDIN') {
+                                  const limit = 3000;
+                                  const over = len > limit;
+                                  return (
+                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 2700 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
+                                      {len}/{limit.toLocaleString()} characters · LinkedIn{len > 2700 && !over ? ' (approaching limit)' : ''}
+                                    </div>
+                                  );
+                                }
+                                if (acct.accountType === 'INSTAGRAM') {
+                                  const limit = 2200;
+                                  const over = len > limit;
+                                  return (
+                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 1980 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
+                                      {len}/{limit.toLocaleString()} characters · Instagram{len > 1980 && !over ? ' (approaching limit)' : ''}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           )}
+
+                          {/* Caption Quality Linter (8d) */}
+                          {newPost.caption.trim().length > 20 && (
+                            <div className="grid gap-2">
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                    lintCaption(newPost.caption, acct?.accountType || 'INSTAGRAM');
+                                  }}
+                                  disabled={isLintingCaption}
+                                >
+                                  {isLintingCaption ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null}
+                                  Check Caption Quality
+                                </Button>
+                                {captionLint && (
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${captionLint.grade === 'green' ? 'bg-green-100 text-green-700' : captionLint.grade === 'yellow' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                                    {captionLint.score}/100 · {captionLint.grade.toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
+                              {captionLint?.suggestions?.length > 0 && (
+                                <div className="rounded-lg border bg-muted/50 p-3 text-xs space-y-1">
+                                  {captionLint.suggestions.map((s: string, i: number) => (
+                                    <div key={i} className="flex items-start gap-1.5">
+                                      <span className="text-amber-600 shrink-0 mt-0.5">•</span>
+                                      <span>{s}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Timing Optimizer (8e) */}
+                          <div className="grid gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                  loadBestTime(acct?.accountType, acct?.id);
+                                }}
+                                disabled={isLoadingBestTime}
+                              >
+                                {isLoadingBestTime ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null}
+                                Best Time to Post
+                              </Button>
+                              {bestTimeResult && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>→ <strong>{bestTimeResult.dayName}</strong> at <strong>{bestTimeResult.hour}:00 UTC</strong></span>
+                                  {bestTimeResult.avgEngagement !== null && (
+                                    <span className="text-green-700">({bestTimeResult.avgEngagement}% avg eng)</span>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => {
+                                      if (bestTimeResult.isoString) {
+                                        setNewPost({ ...newPost, scheduledFor: bestTimeResult.isoString });
+                                        setBestTimeResult(null);
+                                      }
+                                    }}
+                                  >
+                                    Use This Time
+                                  </Button>
+                                </div>
+                              )}
+                              {bestTimeResult?.note && (
+                                <span className="text-xs text-muted-foreground">{bestTimeResult.note}</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </ScrollArea>
                       {/* AI Caption Review */}
@@ -1859,7 +2254,7 @@ export default function Dashboard() {
                                           {accounts.map((account) => (
                                             <option key={account.id} value={account.id}>
                                               {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                               account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                                               account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                             </option>
                                           ))}
                                         </select>
@@ -2149,7 +2544,7 @@ export default function Dashboard() {
                                             {accounts.map((account) => (
                                               <option key={account.id} value={account.id}>
                                                 {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                                 account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                                                 account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                                               </option>
                                             ))}
                                           </select>
@@ -2678,181 +3073,660 @@ export default function Dashboard() {
             </TabsContent>
             
             <TabsContent value="insights">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold">Instagram Insights</h2>
-                <div className="text-sm text-muted-foreground">
-                  Track performance &amp; discover high-performing content
+              <div className="flex flex-wrap justify-between items-center mb-6 gap-3">
+                <h2 className="text-3xl font-bold">Combined Insights</h2>
+                <div className="flex items-center gap-2">
+                  <select
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    value={insightsPlatformFilter}
+                    onChange={(e) => {
+                      setInsightsPlatformFilter(e.target.value);
+                      fetchCombinedInsights(e.target.value);
+                    }}
+                  >
+                    <option value="ALL">All Platforms</option>
+                    <option value="INSTAGRAM">Instagram</option>
+                    <option value="LINKEDIN">LinkedIn</option>
+                    <option value="X">X (Twitter)</option>
+                  </select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchCombinedInsights(insightsPlatformFilter)}
+                    disabled={isLoadingCombined}
+                  >
+                    {isLoadingCombined ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                    Load Insights
+                  </Button>
                 </div>
               </div>
 
-              {/* Account Insights Section */}
-              {accounts.filter(a => a.accountType === 'INSTAGRAM').length > 0 && (
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span className="flex items-center">
-                        <Instagram className="h-5 w-5 mr-2 text-pink-500" />
-                        Account Performance
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                          value={selectedInsightsAccountId}
-                          onChange={(e) => {
-                            setSelectedInsightsAccountId(e.target.value);
-                            if (e.target.value) fetchAccountInsights(e.target.value);
-                          }}
-                        >
-                          <option value="">Select account</option>
-                          {accounts.filter(a => a.accountType === 'INSTAGRAM').map((account) => (
-                            <option key={account.id} value={account.id}>
-                              @{account.username}
-                            </option>
-                          ))}
-                        </select>
-                        {selectedInsightsAccountId && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => refreshAccountInsights(selectedInsightsAccountId)}
-                            disabled={isFetchingInsights}
-                          >
-                            {isFetchingInsights ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                          </Button>
-                        )}
-                      </div>
-                    </CardTitle>
-                    <CardDescription>
-                      View follower counts, profile views, and engagement metrics for your account.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {!selectedInsightsAccountId ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">Select an account above to view insights.</p>
-                    ) : accountInsights.length === 0 ? (
-                      <div className="text-center py-4">
-                        <p className="text-sm text-muted-foreground mb-2">No insights data yet.</p>
-                        <Button variant="outline" size="sm" onClick={() => refreshAccountInsights(selectedInsightsAccountId)} disabled={isFetchingInsights}>
-                          {isFetchingInsights ? "Fetching..." : "Fetch Insights Now"}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        {(() => {
-                          const latest = accountInsights[0];
-                          const prev = accountInsights.length > 1 ? accountInsights[1] : null;
-                          const metrics = [
-                            { label: 'Followers', value: latest.followers, prev: prev?.followers },
-                            { label: 'Following', value: latest.following, prev: prev?.following },
-                            { label: 'Posts', value: latest.mediaCount, prev: prev?.mediaCount },
-                            { label: 'Profile Views', value: latest.profileViews, prev: prev?.profileViews },
-                            { label: 'Website Clicks', value: latest.websiteClicks, prev: prev?.websiteClicks },
-                          ];
-                          return metrics.map((m) => {
-                            const diff = m.prev !== undefined && m.prev !== null ? m.value - m.prev : null;
-                            return (
-                              <div key={m.label} className="rounded-lg border p-3 text-center">
-                                <div className="text-2xl font-bold">{m.value.toLocaleString()}</div>
-                                <div className="text-xs text-muted-foreground">{m.label}</div>
-                                {diff !== null && diff !== 0 && (
-                                  <div className={`text-xs mt-1 ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {diff > 0 ? '+' : ''}{diff.toLocaleString()}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    )}
-                    {accountInsights.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-3">
-                        Last updated: {new Date(accountInsights[0].fetchedAt).toLocaleString()}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Post Performance Section */}
-              {posts.filter(p => p.status === 'PUBLISHED').length > 0 && (
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Post Performance</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={fetchPostInsights}
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" /> Load Insights
-                      </Button>
-                    </CardTitle>
-                    <CardDescription>
-                      View engagement metrics for your published posts. Click refresh on individual posts to pull latest data from Instagram.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {posts.filter(p => p.status === 'PUBLISHED').map((post) => {
-                        const insight = postInsights.find(i => i.postId === post.id);
-                        return (
-                          <div key={post.id} className="rounded-lg border p-4">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">{post.caption.substring(0, 60)}...</p>
-                                {post.socialMediaAccount && (
-                                  <p className="text-xs text-muted-foreground">@{post.socialMediaAccount.username}</p>
-                                )}
+              {/* ---- Account Overview Strip ---- */}
+              {accounts.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Account Overview</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {accounts.map((acct) => {
+                      const overview = combinedInsights?.accountOverview?.find((o: any) => o.accountId === acct.id);
+                      const platformColor = acct.accountType === 'INSTAGRAM' ? 'text-pink-500' : acct.accountType === 'LINKEDIN' ? 'text-blue-600' : 'text-foreground';
+                      const platformLabel = acct.accountType === 'INSTAGRAM' ? 'Instagram' : acct.accountType === 'LINKEDIN' ? 'LinkedIn' : acct.accountType === 'X' ? 'X' : acct.accountType;
+                      const followers = overview?.followers ?? 0;
+                      const growth = overview?.followerGrowth ?? null;
+                      return (
+                        <Card key={acct.id} className="relative">
+                          <CardContent className="pt-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div>
+                                <p className="font-semibold text-sm">@{acct.username}</p>
+                                <p className={`text-xs ${platformColor}`}>{platformLabel}</p>
                               </div>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => refreshPostInsights(post.id)}
+                                onClick={() => {
+                                  if (acct.accountType === 'INSTAGRAM') refreshAccountInsights(acct.id);
+                                  else refreshPlatformAccountInsights(acct.id, acct.accountType as 'LINKEDIN' | 'X');
+                                }}
                                 disabled={isFetchingInsights}
+                                title="Refresh insights"
                               >
-                                <RefreshCw className={`h-3 w-3 ${isFetchingInsights ? 'animate-spin' : ''}`} />
+                                <RefreshCw className={`h-4 w-4 ${isFetchingInsights ? 'animate-spin' : ''}`} />
                               </Button>
                             </div>
-                            {insight ? (
+                            {overview ? (
                               <div className="grid grid-cols-3 gap-2 text-center">
                                 <div>
-                                  <div className="text-lg font-bold">{insight.reach.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Reach</div>
+                                  <div className="text-xl font-bold">{followers.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Followers</div>
+                                  {growth !== null && growth !== 0 && (
+                                    <div className={`text-xs mt-0.5 font-medium ${growth > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {growth > 0 ? '+' : ''}{growth.toLocaleString()}
+                                    </div>
+                                  )}
                                 </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.likes.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Likes</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.comments.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Comments</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.shares.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Shares</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.saves.toLocaleString()}</div>
-                                  <div className="text-xs text-muted-foreground">Saves</div>
-                                </div>
-                                <div>
-                                  <div className="text-lg font-bold">{insight.engagement.toFixed(1)}%</div>
-                                  <div className="text-xs text-muted-foreground">Engagement</div>
-                                </div>
+                                {acct.accountType === 'INSTAGRAM' ? (
+                                  <>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.profileViews ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Profile Views</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.mediaCount ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Posts</div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.following ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Following</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xl font-bold">{(overview.mediaCount ?? 0).toLocaleString()}</div>
+                                      <div className="text-xs text-muted-foreground">Posts</div>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground text-center py-2">
-                                No insights yet. Click refresh to fetch from Instagram.
+                              <p className="text-xs text-muted-foreground text-center py-3">No data yet — click refresh.</p>
+                            )}
+                            {overview?.lastFetchedAt && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Updated {new Date(overview.lastFetchedAt).toLocaleDateString()}
                               </p>
                             )}
-                          </div>
-                        );
-                      })}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ---- Platform Stats Summary ---- */}
+              {combinedInsights?.summary?.platformStats?.length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle>Platform Comparison</CardTitle>
+                    <CardDescription>Average engagement metrics across your connected platforms.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Platform</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Posts</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Engagement</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Likes</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Comments</th>
+                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Avg Reach</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {combinedInsights.summary.platformStats.map((stat: any) => (
+                            <tr key={stat.platform} className="border-b last:border-0">
+                              <td className="py-2 pr-4 font-medium">
+                                <span className={stat.platform === 'INSTAGRAM' ? 'text-pink-500' : stat.platform === 'LINKEDIN' ? 'text-blue-600' : ''}>
+                                  {stat.platform === 'INSTAGRAM' ? 'Instagram' : stat.platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                </span>
+                              </td>
+                              <td className="text-right py-2 px-2">{stat.totalPosts}</td>
+                              <td className="text-right py-2 px-2 font-semibold">{stat.avgEngagement.toFixed(2)}%</td>
+                              <td className="text-right py-2 px-2">{stat.avgLikes.toFixed(0)}</td>
+                              <td className="text-right py-2 px-2">{stat.avgComments.toFixed(0)}</td>
+                              <td className="text-right py-2 px-2">{stat.avgReach.toFixed(0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </CardContent>
                 </Card>
               )}
+
+              {/* ---- Cross-Platform Post Performance Table ---- */}
+              {combinedInsights?.postTable?.length > 0 ? (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Post Performance</span>
+                      <select
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                        value={postTableSort}
+                        onChange={(e) => setPostTableSort(e.target.value)}
+                      >
+                        <option value="engagement">Sort: Engagement</option>
+                        <option value="likes">Sort: Likes</option>
+                        <option value="reach">Sort: Reach</option>
+                        <option value="date">Sort: Date</option>
+                      </select>
+                    </CardTitle>
+                    <CardDescription>Performance metrics across all published posts and platforms.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {(combinedInsights.postTable as any[])
+                        .slice()
+                        .sort((a: any, b: any) => {
+                          if (postTableSort === 'date') return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+                          const getVal = (p: any, key: string) => {
+                            if (!p.platformInsights?.length) return 0;
+                            return Math.max(...p.platformInsights.map((i: any) => i[key] ?? 0));
+                          };
+                          if (postTableSort === 'likes') return getVal(b, 'likes') - getVal(a, 'likes');
+                          if (postTableSort === 'reach') return getVal(b, 'reach') - getVal(a, 'reach');
+                          return getVal(b, 'engagement') - getVal(a, 'engagement');
+                        })
+                        .map((post: any) => (
+                          <div key={post.postId} className="rounded-lg border p-3">
+                            <p className="text-sm font-medium mb-1 line-clamp-2">{post.caption}</p>
+                            {post.account && (
+                              <p className="text-xs text-muted-foreground mb-2">@{post.account.username} · {post.account.accountType === 'INSTAGRAM' ? 'Instagram' : post.account.accountType === 'LINKEDIN' ? 'LinkedIn' : 'X'}</p>
+                            )}
+                            {post.platformInsights?.length > 0 ? (
+                              <div className="space-y-2">
+                                {(post.platformInsights as any[]).map((ins: any) => (
+                                  <div key={ins.platform} className="bg-muted/40 rounded p-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className={`text-xs font-semibold ${ins.platform === 'INSTAGRAM' ? 'text-pink-500' : ins.platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                        {ins.platform === 'INSTAGRAM' ? 'Instagram' : ins.platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                      </span>
+                                      <span className="text-xs font-bold text-foreground">{ins.engagement.toFixed(1)}% eng.</span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1 text-center">
+                                      <div>
+                                        <div className="text-sm font-semibold">{(ins.reach || ins.impressions || 0).toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">{ins.reach > 0 ? 'Reach' : 'Impr.'}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-semibold">{ins.likes.toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">Likes</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-semibold">{ins.comments.toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">Comments</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-semibold">{(ins.saves || ins.bookmarks || 0).toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground">Saves</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs text-muted-foreground">No insights data yet.</p>
+                                <Button variant="ghost" size="sm" onClick={() => refreshPostInsights(post.postId)} disabled={isFetchingInsights}>
+                                  <RefreshCw className={`h-3 w-3 ${isFetchingInsights ? 'animate-spin' : ''}`} />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : posts.filter(p => p.status === 'PUBLISHED').length > 0 && !combinedInsights && (
+                <Card className="mb-6">
+                  <CardContent className="text-center py-8">
+                    <p className="text-muted-foreground mb-3">Load insights to see cross-platform post performance.</p>
+                    <Button variant="outline" onClick={() => fetchCombinedInsights(insightsPlatformFilter)} disabled={isLoadingCombined}>
+                      {isLoadingCombined ? 'Loading...' : 'Load Insights'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ---- What's Working (8c) ---- */}
+              {combinedInsights && (
+                <div className="mb-6 space-y-4">
+                  <h3 className="text-lg font-semibold">What's Working</h3>
+
+                  {/* Top performers per platform */}
+                  {Object.keys(combinedInsights.topByPlatform ?? {}).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Top Performing Posts</CardTitle>
+                        <CardDescription>Your highest-engagement posts by platform.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {Object.entries(combinedInsights.topByPlatform).map(([platform, topPosts]: [string, any]) => (
+                            <div key={platform}>
+                              <p className={`text-sm font-semibold mb-2 ${platform === 'INSTAGRAM' ? 'text-pink-500' : platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                {platform === 'INSTAGRAM' ? 'Instagram' : platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                              </p>
+                              <div className="space-y-2">
+                                {(topPosts as any[]).map((post: any, i: number) => (
+                                  <div key={post.postId || i} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                                    <span className="flex-1 mr-4 text-xs line-clamp-1">{post.captionSnippet}</span>
+                                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                                      <span>{post.likes?.toLocaleString()} likes</span>
+                                      <span className="font-semibold text-foreground">{post.engagement.toFixed(1)}%</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Hashtag performance */}
+                  {(combinedInsights.summary?.hashtagAnalysis?.recommendedHashtags?.length > 0 ||
+                    combinedInsights.summary?.hashtagAnalysis?.avoidHashtags?.length > 0) && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Hashtag Signals</CardTitle>
+                        <CardDescription>Tags correlated with your top and lowest performing posts.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {combinedInsights.summary.hashtagAnalysis.recommendedHashtags?.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-green-700 mb-1">Recommended (appear in top posts)</p>
+                            <div className="flex flex-wrap gap-1">
+                              {combinedInsights.summary.hashtagAnalysis.recommendedHashtags.map((tag: string) => (
+                                <span key={tag} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-green-50 text-green-700 border border-green-200">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {combinedInsights.summary.hashtagAnalysis.avoidHashtags?.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-red-700 mb-1">Avoid (appear only in low-performers)</p>
+                            <div className="flex flex-wrap gap-1">
+                              {combinedInsights.summary.hashtagAnalysis.avoidHashtags.map((tag: string) => (
+                                <span key={tag} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-red-50 text-red-700 border border-red-200">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Best posting times per platform */}
+                  {Object.keys(combinedInsights.timingByPlatform ?? {}).some(
+                    (pl) => (combinedInsights.timingByPlatform[pl] as any[]).length > 0
+                  ) && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Best Posting Times</CardTitle>
+                        <CardDescription>Hours and days correlated with your highest engagement (UTC).</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {Object.entries(combinedInsights.timingByPlatform).map(([platform, slots]: [string, any]) => {
+                            if (!slots?.length) return null;
+                            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                            return (
+                              <div key={platform}>
+                                <p className={`text-sm font-semibold mb-2 ${platform === 'INSTAGRAM' ? 'text-pink-500' : platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                  {platform === 'INSTAGRAM' ? 'Instagram' : platform === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {(slots as any[]).slice(0, 3).map((slot: any, i: number) => (
+                                    <div key={i} className="rounded border px-3 py-1.5 text-center text-xs">
+                                      <div className="font-semibold">{days[slot.dayOfWeek]} {slot.hour}:00</div>
+                                      <div className="text-muted-foreground">{slot.avgEngagement.toFixed(1)}% avg</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Content type breakdown */}
+                  {combinedInsights.summary?.contentTypeBreakdown?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Content Type Performance</CardTitle>
+                        <CardDescription>Average engagement by content format.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-4">
+                          {combinedInsights.summary.contentTypeBreakdown.map((ct: any) => (
+                            <div key={ct.type} className="rounded-lg border p-3 text-center min-w-[100px]">
+                              <div className="text-xl font-bold">{ct.avgEngagement.toFixed(1)}%</div>
+                              <div className="text-xs font-medium">{ct.type === 'BLOG_POST' ? 'Blog Post' : ct.type.charAt(0) + ct.type.slice(1).toLowerCase()}</div>
+                              <div className="text-xs text-muted-foreground">{ct.count} posts</div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* ---- What's Not Working (8d) ---- */}
+              {combinedInsights && (
+                <div className="mb-6 space-y-4">
+                  <h3 className="text-lg font-semibold">What's Not Working</h3>
+
+                  {/* Decline Alerts */}
+                  {combinedInsights.summary?.declineAlerts?.length > 0 && (
+                    <div className="space-y-2">
+                      {combinedInsights.summary.declineAlerts.map((alert: any, i: number) => (
+                        <div key={i} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                          <span className="text-amber-600 shrink-0 mt-0.5 font-bold">!</span>
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800">{alert.platform} engagement down {alert.dropPercent}%</p>
+                            <p className="text-xs text-amber-700 mt-0.5">{alert.suggestion}</p>
+                            <p className="text-xs text-amber-600 mt-1">This week: {alert.thisWeek}% · Last week: {alert.lastWeek}%</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Underperformers Panel */}
+                  {combinedInsights.summary?.underperformers?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Underperforming Posts</CardTitle>
+                        <CardDescription>Bottom 20% by engagement in the last 90 days — with detected issues.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {combinedInsights.summary.underperformers.map((post: any) => (
+                            <div key={post.id} className="rounded-lg border p-3">
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <p className="text-sm line-clamp-2 flex-1">{post.captionSnippet}</p>
+                                <span className={`text-xs shrink-0 ${post.platform === 'INSTAGRAM' ? 'text-pink-500' : post.platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                  {post.platform}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 mb-2 text-xs text-muted-foreground">
+                                <span className="text-red-600 font-semibold">{post.engagement.toFixed(1)}% eng.</span>
+                                <span>avg: {post.avgEngagement.toFixed(1)}%</span>
+                                <span>{post.likes} likes</span>
+                                <span>{post.reach.toLocaleString()} reach</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {post.failureModes.map((mode: string, i: number) => (
+                                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">{mode}</span>
+                                ))}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs"
+                                onClick={() => { setRefinePostId(post.id); setRefineResult(null); }}
+                              >
+                                AI Refine This Post
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {combinedInsights.summary?.underperformers?.length === 0 && combinedInsights.summary?.declineAlerts?.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No underperformers detected yet. Load insights to analyze your posts.</p>
+                  )}
+                </div>
+              )}
+
+              {/* ---- Post Refinement Panel (8e) ---- */}
+              {combinedInsights && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>AI Post Refinement</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Select any published post to get AI-powered caption rewrites, hashtag suggestions, or media improvement tips.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 sm:grid-cols-3 mb-3">
+                      <div>
+                        <Label className="text-xs mb-1 block">Post</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={refinePostId}
+                          onChange={(e) => { setRefinePostId(e.target.value); setRefineResult(null); }}
+                        >
+                          <option value="">Select a post</option>
+                          {posts.filter(p => p.status === 'PUBLISHED').map(p => (
+                            <option key={p.id} value={p.id}>{p.caption.slice(0, 50)}...</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Refinement Type</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={refineType}
+                          onChange={(e) => setRefineType(e.target.value)}
+                        >
+                          <option value="caption">Rewrite Caption</option>
+                          <option value="hashtags">Optimize Hashtags</option>
+                          <option value="media_suggestion">Media Suggestions</option>
+                        </select>
+                      </div>
+                      {refineType === 'caption' && (
+                        <div>
+                          <Label className="text-xs mb-1 block">Tone</Label>
+                          <select
+                            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                            value={refineTone}
+                            onChange={(e) => setRefineTone(e.target.value)}
+                          >
+                            <option value="casual">Casual</option>
+                            <option value="professional">Professional</option>
+                            <option value="storytelling">Storytelling</option>
+                            <option value="direct_cta">Direct CTA</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      onClick={() => refinePost(refinePostId)}
+                      disabled={!refinePostId || isRefining}
+                    >
+                      {isRefining ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Refining...</> : 'Generate Refinement'}
+                    </Button>
+
+                    {refineResult && (
+                      <div className="mt-4 space-y-3">
+                        {refineResult.insight && (
+                          <div className="text-xs text-muted-foreground">
+                            This post: <span className="text-red-600 font-semibold">{refineResult.insight.engagement.toFixed(1)}% eng.</span> · Your average: <span className="font-semibold">{refineResult.insight.avgEngagement.toFixed(1)}%</span>
+                          </div>
+                        )}
+                        {refineResult.refinedCaption && (
+                          <div>
+                            <p className="text-xs font-semibold mb-1">Refined Caption:</p>
+                            <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{refineResult.refinedCaption}</div>
+                            {refineResult.explanation && <p className="text-xs text-muted-foreground mt-1">{refineResult.explanation}</p>}
+                            {refineResult.keyImprovements?.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {refineResult.keyImprovements.map((imp: string, i: number) => (
+                                  <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-green-600">✓</span>{imp}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {refineResult.suggestedHashtags?.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold mb-1">Suggested Hashtags:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {refineResult.suggestedHashtags.map((tag: string, i: number) => (
+                                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {refineResult.suggestions?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold">Media Suggestions:</p>
+                            {refineResult.suggestions.map((s: string, i: number) => (
+                              <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-amber-600">•</span>{s}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ---- A/B Test Tracker (8e) ---- */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>A/B Test Tracker</span>
+                    <Button variant="outline" size="sm" onClick={loadABTests} disabled={isLoadingABTests}>
+                      {isLoadingABTests ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    </Button>
+                  </CardTitle>
+                  <CardDescription>Compare two posts side-by-side to see which caption, image, or timing performed better.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {/* Create new test */}
+                  <div className="rounded-lg border p-3 mb-4">
+                    <p className="text-sm font-medium mb-2">New A/B Test</p>
+                    <div className="grid gap-2 sm:grid-cols-2 mb-2">
+                      <div>
+                        <Label className="text-xs mb-1 block">Post A</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={newABTest.postAId}
+                          onChange={(e) => setNewABTest({ ...newABTest, postAId: e.target.value })}
+                        >
+                          <option value="">Select Post A</option>
+                          {posts.filter(p => p.status === 'PUBLISHED').map(p => (
+                            <option key={p.id} value={p.id}>{p.caption.slice(0, 40)}...</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Post B</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={newABTest.postBId}
+                          onChange={(e) => setNewABTest({ ...newABTest, postBId: e.target.value })}
+                        >
+                          <option value="">Select Post B</option>
+                          {posts.filter(p => p.status === 'PUBLISHED' && p.id !== newABTest.postAId).map(p => (
+                            <option key={p.id} value={p.id}>{p.caption.slice(0, 40)}...</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <Input
+                      placeholder="Notes (optional — what are you testing?)"
+                      className="mb-2 text-sm"
+                      value={newABTest.notes}
+                      onChange={(e) => setNewABTest({ ...newABTest, notes: e.target.value })}
+                    />
+                    <Button size="sm" onClick={createABTest} disabled={!newABTest.postAId || !newABTest.postBId}>
+                      Create A/B Test
+                    </Button>
+                  </div>
+
+                  {/* Existing tests */}
+                  {abTests.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">No A/B tests yet. Click refresh to load or create one above.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {abTests.map((test: any) => (
+                        <div key={test.id} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${test.status === 'concluded' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {test.status === 'concluded' ? 'Concluded' : 'Active'}
+                              </span>
+                              {test.notes && <span className="text-xs text-muted-foreground ml-2">{test.notes}</span>}
+                            </div>
+                            <span className="text-xs text-muted-foreground">{new Date(test.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[{ post: test.postA, label: 'A', id: test.postAId }, { post: test.postB, label: 'B', id: test.postBId }].map(({ post, label, id }) => (
+                              <div key={label} className={`rounded border p-2 ${test.winnerId === id ? 'border-green-500 bg-green-50' : ''}`}>
+                                <div className="flex items-center gap-1 mb-1">
+                                  <span className="text-xs font-bold">Post {label}</span>
+                                  {test.winnerId === id && <span className="text-xs text-green-700 font-semibold">Winner</span>}
+                                </div>
+                                {post ? (
+                                  <>
+                                    <p className="text-xs line-clamp-2 mb-1">{post.caption}</p>
+                                    {post.insight ? (
+                                      <div className="grid grid-cols-2 gap-1 text-xs text-center">
+                                        <div><div className="font-bold">{post.insight.engagement.toFixed(1)}%</div><div className="text-muted-foreground">Eng.</div></div>
+                                        <div><div className="font-bold">{post.insight.likes}</div><div className="text-muted-foreground">Likes</div></div>
+                                      </div>
+                                    ) : <p className="text-xs text-muted-foreground">No insights yet</p>}
+                                  </>
+                                ) : <p className="text-xs text-muted-foreground">Post not found</p>}
+                              </div>
+                            ))}
+                          </div>
+                          {test.status !== 'concluded' && test.postA?.insight && test.postB?.insight && (
+                            <div className="flex gap-2 mt-2">
+                              <Button size="sm" variant="outline" className="text-xs" onClick={() => markABWinner(test.id, test.postAId)}>Mark A as Winner</Button>
+                              <Button size="sm" variant="outline" className="text-xs" onClick={() => markABWinner(test.id, test.postBId)}>Mark B as Winner</Button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* AI Recommendations Section */}
               <Card className="mb-6">
@@ -3821,7 +4695,7 @@ export default function Dashboard() {
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" :
-                         account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                         account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
                       </option>
                     ))}
                   </select>
