@@ -78,6 +78,22 @@ model ContentPost {
   postInsights         PostInsight[]
 }
 
+model ABTest {
+  id          String      @id @default(uuid())
+  userId      String      @db.Uuid
+  postAId     String
+  postBId     String
+  notes       String?
+  status      String      @default("active") // active | concluded
+  winnerId    String?     // postAId or postBId
+  createdAt   DateTime    @default(now())
+  comparedAt  DateTime?
+
+  @@index([userId])
+  @@index([postAId])
+  @@index([postBId])
+}
+
 enum PostStatus {
   DRAFT
   SCHEDULED

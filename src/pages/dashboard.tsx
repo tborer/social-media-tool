@@ -211,6 +211,23 @@ export default function Dashboard() {
   const [isLoadingCombined, setIsLoadingCombined] = useState(false);
   const [insightsPlatformFilter, setInsightsPlatformFilter] = useState<string>('ALL');
   const [postTableSort, setPostTableSort] = useState<string>('engagement');
+  // Caption linter (in create-post dialog + insights)
+  const [captionLint, setCaptionLint] = useState<any>(null);
+  const [isLintingCaption, setIsLintingCaption] = useState(false);
+  // Post refinement (8e)
+  const [refinePostId, setRefinePostId] = useState<string>('');
+  const [refineTone, setRefineTone] = useState<string>('casual');
+  const [refineType, setRefineType] = useState<string>('caption');
+  const [refineResult, setRefineResult] = useState<any>(null);
+  const [isRefining, setIsRefining] = useState(false);
+  // A/B tests (8e)
+  const [abTests, setAbTests] = useState<any[]>([]);
+  const [isLoadingABTests, setIsLoadingABTests] = useState(false);
+  const [newABTest, setNewABTest] = useState({ postAId: '', postBId: '', notes: '' });
+  const [isCreatingABTest, setIsCreatingABTest] = useState(false);
+  // Timing optimizer (8e)
+  const [bestTimeResult, setBestTimeResult] = useState<any>(null);
+  const [isLoadingBestTime, setIsLoadingBestTime] = useState(false);
 
   // Discovery state
   const [accountSearchResults, setAccountSearchResults] = useState<any[]>([]);
@@ -1221,6 +1238,119 @@ export default function Dashboard() {
     }
   };
 
+  // Lint caption quality (8d)
+  const lintCaption = async (caption: string, platform = 'INSTAGRAM') => {
+    if (!caption.trim()) return;
+    setIsLintingCaption(true);
+    try {
+      const response = await fetch('/api/insights/lint-caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption, platform }),
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCaptionLint(data);
+      }
+    } catch (error) {
+      console.error('Caption lint error:', error);
+    } finally {
+      setIsLintingCaption(false);
+    }
+  };
+
+  // AI post refinement (8e)
+  const refinePost = async (postId: string) => {
+    setIsRefining(true);
+    setRefineResult(null);
+    try {
+      const response = await fetch('/api/ai/refine-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId, type: refineType, tone: refineTone }),
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Refinement failed');
+      setRefineResult(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Refinement failed" });
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
+  // Load A/B tests (8e)
+  const loadABTests = async () => {
+    setIsLoadingABTests(true);
+    try {
+      const response = await fetch('/api/insights/ab-tests', { credentials: 'include' });
+      if (response.ok) setAbTests(await response.json());
+    } catch (error) {
+      console.error('Error loading A/B tests:', error);
+    } finally {
+      setIsLoadingABTests(false);
+    }
+  };
+
+  // Create A/B test (8e)
+  const createABTest = async () => {
+    if (!newABTest.postAId || !newABTest.postBId) {
+      toast({ variant: "destructive", title: "Error", description: "Select both Post A and Post B" });
+      return;
+    }
+    try {
+      const response = await fetch('/api/insights/ab-tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newABTest),
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create A/B test');
+      toast({ title: "Success", description: "A/B test created" });
+      setNewABTest({ postAId: '', postBId: '', notes: '' });
+      loadABTests();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed" });
+    }
+  };
+
+  // Mark A/B test winner (8e)
+  const markABWinner = async (testId: string, winnerId: string) => {
+    try {
+      const response = await fetch(`/api/insights/ab-tests?id=${testId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ winnerId }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to update A/B test');
+      toast({ title: "Success", description: "Winner marked" });
+      loadABTests();
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed" });
+    }
+  };
+
+  // Timing optimizer — fetch best posting time (8e)
+  const loadBestTime = async (platform?: string, accountId?: string) => {
+    setIsLoadingBestTime(true);
+    setBestTimeResult(null);
+    try {
+      const params = new URLSearchParams();
+      if (platform) params.set('platform', platform);
+      if (accountId) params.set('accountId', accountId);
+      const response = await fetch(`/api/insights/best-time?${params}`, { credentials: 'include' });
+      if (response.ok) setBestTimeResult(await response.json());
+    } catch (error) {
+      console.error('Error loading best time:', error);
+    } finally {
+      setIsLoadingBestTime(false);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-background flex-col">
@@ -1886,6 +2016,83 @@ export default function Dashboard() {
                               })()}
                             </div>
                           )}
+
+                          {/* Caption Quality Linter (8d) */}
+                          {newPost.caption.trim().length > 20 && (
+                            <div className="grid gap-2">
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                    lintCaption(newPost.caption, acct?.accountType || 'INSTAGRAM');
+                                  }}
+                                  disabled={isLintingCaption}
+                                >
+                                  {isLintingCaption ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null}
+                                  Check Caption Quality
+                                </Button>
+                                {captionLint && (
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${captionLint.grade === 'green' ? 'bg-green-100 text-green-700' : captionLint.grade === 'yellow' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                                    {captionLint.score}/100 · {captionLint.grade.toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
+                              {captionLint?.suggestions?.length > 0 && (
+                                <div className="rounded-lg border bg-muted/50 p-3 text-xs space-y-1">
+                                  {captionLint.suggestions.map((s: string, i: number) => (
+                                    <div key={i} className="flex items-start gap-1.5">
+                                      <span className="text-amber-600 shrink-0 mt-0.5">•</span>
+                                      <span>{s}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Timing Optimizer (8e) */}
+                          <div className="grid gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                  loadBestTime(acct?.accountType, acct?.id);
+                                }}
+                                disabled={isLoadingBestTime}
+                              >
+                                {isLoadingBestTime ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null}
+                                Best Time to Post
+                              </Button>
+                              {bestTimeResult && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>→ <strong>{bestTimeResult.dayName}</strong> at <strong>{bestTimeResult.hour}:00 UTC</strong></span>
+                                  {bestTimeResult.avgEngagement !== null && (
+                                    <span className="text-green-700">({bestTimeResult.avgEngagement}% avg eng)</span>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => {
+                                      if (bestTimeResult.isoString) {
+                                        setNewPost({ ...newPost, scheduledFor: bestTimeResult.isoString });
+                                        setBestTimeResult(null);
+                                      }
+                                    }}
+                                  >
+                                    Use This Time
+                                  </Button>
+                                </div>
+                              )}
+                              {bestTimeResult?.note && (
+                                <span className="text-xs text-muted-foreground">{bestTimeResult.note}</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </ScrollArea>
                       {/* AI Caption Review */}
@@ -3240,6 +3447,286 @@ export default function Dashboard() {
                   )}
                 </div>
               )}
+
+              {/* ---- What's Not Working (8d) ---- */}
+              {combinedInsights && (
+                <div className="mb-6 space-y-4">
+                  <h3 className="text-lg font-semibold">What's Not Working</h3>
+
+                  {/* Decline Alerts */}
+                  {combinedInsights.summary?.declineAlerts?.length > 0 && (
+                    <div className="space-y-2">
+                      {combinedInsights.summary.declineAlerts.map((alert: any, i: number) => (
+                        <div key={i} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                          <span className="text-amber-600 shrink-0 mt-0.5 font-bold">!</span>
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800">{alert.platform} engagement down {alert.dropPercent}%</p>
+                            <p className="text-xs text-amber-700 mt-0.5">{alert.suggestion}</p>
+                            <p className="text-xs text-amber-600 mt-1">This week: {alert.thisWeek}% · Last week: {alert.lastWeek}%</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Underperformers Panel */}
+                  {combinedInsights.summary?.underperformers?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Underperforming Posts</CardTitle>
+                        <CardDescription>Bottom 20% by engagement in the last 90 days — with detected issues.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {combinedInsights.summary.underperformers.map((post: any) => (
+                            <div key={post.id} className="rounded-lg border p-3">
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <p className="text-sm line-clamp-2 flex-1">{post.captionSnippet}</p>
+                                <span className={`text-xs shrink-0 ${post.platform === 'INSTAGRAM' ? 'text-pink-500' : post.platform === 'LINKEDIN' ? 'text-blue-600' : ''}`}>
+                                  {post.platform}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 mb-2 text-xs text-muted-foreground">
+                                <span className="text-red-600 font-semibold">{post.engagement.toFixed(1)}% eng.</span>
+                                <span>avg: {post.avgEngagement.toFixed(1)}%</span>
+                                <span>{post.likes} likes</span>
+                                <span>{post.reach.toLocaleString()} reach</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {post.failureModes.map((mode: string, i: number) => (
+                                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">{mode}</span>
+                                ))}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs"
+                                onClick={() => { setRefinePostId(post.id); setRefineResult(null); }}
+                              >
+                                AI Refine This Post
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {combinedInsights.summary?.underperformers?.length === 0 && combinedInsights.summary?.declineAlerts?.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No underperformers detected yet. Load insights to analyze your posts.</p>
+                  )}
+                </div>
+              )}
+
+              {/* ---- Post Refinement Panel (8e) ---- */}
+              {combinedInsights && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>AI Post Refinement</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Select any published post to get AI-powered caption rewrites, hashtag suggestions, or media improvement tips.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 sm:grid-cols-3 mb-3">
+                      <div>
+                        <Label className="text-xs mb-1 block">Post</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={refinePostId}
+                          onChange={(e) => { setRefinePostId(e.target.value); setRefineResult(null); }}
+                        >
+                          <option value="">Select a post</option>
+                          {posts.filter(p => p.status === 'PUBLISHED').map(p => (
+                            <option key={p.id} value={p.id}>{p.caption.slice(0, 50)}...</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Refinement Type</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={refineType}
+                          onChange={(e) => setRefineType(e.target.value)}
+                        >
+                          <option value="caption">Rewrite Caption</option>
+                          <option value="hashtags">Optimize Hashtags</option>
+                          <option value="media_suggestion">Media Suggestions</option>
+                        </select>
+                      </div>
+                      {refineType === 'caption' && (
+                        <div>
+                          <Label className="text-xs mb-1 block">Tone</Label>
+                          <select
+                            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                            value={refineTone}
+                            onChange={(e) => setRefineTone(e.target.value)}
+                          >
+                            <option value="casual">Casual</option>
+                            <option value="professional">Professional</option>
+                            <option value="storytelling">Storytelling</option>
+                            <option value="direct_cta">Direct CTA</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      onClick={() => refinePost(refinePostId)}
+                      disabled={!refinePostId || isRefining}
+                    >
+                      {isRefining ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Refining...</> : 'Generate Refinement'}
+                    </Button>
+
+                    {refineResult && (
+                      <div className="mt-4 space-y-3">
+                        {refineResult.insight && (
+                          <div className="text-xs text-muted-foreground">
+                            This post: <span className="text-red-600 font-semibold">{refineResult.insight.engagement.toFixed(1)}% eng.</span> · Your average: <span className="font-semibold">{refineResult.insight.avgEngagement.toFixed(1)}%</span>
+                          </div>
+                        )}
+                        {refineResult.refinedCaption && (
+                          <div>
+                            <p className="text-xs font-semibold mb-1">Refined Caption:</p>
+                            <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{refineResult.refinedCaption}</div>
+                            {refineResult.explanation && <p className="text-xs text-muted-foreground mt-1">{refineResult.explanation}</p>}
+                            {refineResult.keyImprovements?.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {refineResult.keyImprovements.map((imp: string, i: number) => (
+                                  <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-green-600">✓</span>{imp}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {refineResult.suggestedHashtags?.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold mb-1">Suggested Hashtags:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {refineResult.suggestedHashtags.map((tag: string, i: number) => (
+                                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {refineResult.suggestions?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold">Media Suggestions:</p>
+                            {refineResult.suggestions.map((s: string, i: number) => (
+                              <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-amber-600">•</span>{s}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ---- A/B Test Tracker (8e) ---- */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>A/B Test Tracker</span>
+                    <Button variant="outline" size="sm" onClick={loadABTests} disabled={isLoadingABTests}>
+                      {isLoadingABTests ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    </Button>
+                  </CardTitle>
+                  <CardDescription>Compare two posts side-by-side to see which caption, image, or timing performed better.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {/* Create new test */}
+                  <div className="rounded-lg border p-3 mb-4">
+                    <p className="text-sm font-medium mb-2">New A/B Test</p>
+                    <div className="grid gap-2 sm:grid-cols-2 mb-2">
+                      <div>
+                        <Label className="text-xs mb-1 block">Post A</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={newABTest.postAId}
+                          onChange={(e) => setNewABTest({ ...newABTest, postAId: e.target.value })}
+                        >
+                          <option value="">Select Post A</option>
+                          {posts.filter(p => p.status === 'PUBLISHED').map(p => (
+                            <option key={p.id} value={p.id}>{p.caption.slice(0, 40)}...</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Post B</Label>
+                        <select
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          value={newABTest.postBId}
+                          onChange={(e) => setNewABTest({ ...newABTest, postBId: e.target.value })}
+                        >
+                          <option value="">Select Post B</option>
+                          {posts.filter(p => p.status === 'PUBLISHED' && p.id !== newABTest.postAId).map(p => (
+                            <option key={p.id} value={p.id}>{p.caption.slice(0, 40)}...</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <Input
+                      placeholder="Notes (optional — what are you testing?)"
+                      className="mb-2 text-sm"
+                      value={newABTest.notes}
+                      onChange={(e) => setNewABTest({ ...newABTest, notes: e.target.value })}
+                    />
+                    <Button size="sm" onClick={createABTest} disabled={!newABTest.postAId || !newABTest.postBId}>
+                      Create A/B Test
+                    </Button>
+                  </div>
+
+                  {/* Existing tests */}
+                  {abTests.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">No A/B tests yet. Click refresh to load or create one above.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {abTests.map((test: any) => (
+                        <div key={test.id} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${test.status === 'concluded' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {test.status === 'concluded' ? 'Concluded' : 'Active'}
+                              </span>
+                              {test.notes && <span className="text-xs text-muted-foreground ml-2">{test.notes}</span>}
+                            </div>
+                            <span className="text-xs text-muted-foreground">{new Date(test.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[{ post: test.postA, label: 'A', id: test.postAId }, { post: test.postB, label: 'B', id: test.postBId }].map(({ post, label, id }) => (
+                              <div key={label} className={`rounded border p-2 ${test.winnerId === id ? 'border-green-500 bg-green-50' : ''}`}>
+                                <div className="flex items-center gap-1 mb-1">
+                                  <span className="text-xs font-bold">Post {label}</span>
+                                  {test.winnerId === id && <span className="text-xs text-green-700 font-semibold">Winner</span>}
+                                </div>
+                                {post ? (
+                                  <>
+                                    <p className="text-xs line-clamp-2 mb-1">{post.caption}</p>
+                                    {post.insight ? (
+                                      <div className="grid grid-cols-2 gap-1 text-xs text-center">
+                                        <div><div className="font-bold">{post.insight.engagement.toFixed(1)}%</div><div className="text-muted-foreground">Eng.</div></div>
+                                        <div><div className="font-bold">{post.insight.likes}</div><div className="text-muted-foreground">Likes</div></div>
+                                      </div>
+                                    ) : <p className="text-xs text-muted-foreground">No insights yet</p>}
+                                  </>
+                                ) : <p className="text-xs text-muted-foreground">Post not found</p>}
+                              </div>
+                            ))}
+                          </div>
+                          {test.status !== 'concluded' && test.postA?.insight && test.postB?.insight && (
+                            <div className="flex gap-2 mt-2">
+                              <Button size="sm" variant="outline" className="text-xs" onClick={() => markABWinner(test.id, test.postAId)}>Mark A as Winner</Button>
+                              <Button size="sm" variant="outline" className="text-xs" onClick={() => markABWinner(test.id, test.postBId)}>Mark B as Winner</Button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* AI Recommendations Section */}
               <Card className="mb-6">
