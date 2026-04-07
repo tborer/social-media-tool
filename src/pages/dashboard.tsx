@@ -220,6 +220,8 @@ export default function Dashboard() {
   const [refineType, setRefineType] = useState<string>('caption');
   const [refineResult, setRefineResult] = useState<any>(null);
   const [isRefining, setIsRefining] = useState(false);
+  const [refinePostCount, setRefinePostCount] = useState<number>(10);
+  const [refinePostSort, setRefinePostSort] = useState<string>('engagement');
   // A/B tests (8e)
   const [abTests, setAbTests] = useState<any[]>([]);
   const [isLoadingABTests, setIsLoadingABTests] = useState(false);
@@ -3519,110 +3521,216 @@ export default function Dashboard() {
               )}
 
               {/* ---- Post Refinement Panel (8e) ---- */}
-              {combinedInsights && (
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>AI Post Refinement</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Select any published post to get AI-powered caption rewrites, hashtag suggestions, or media improvement tips.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-3 sm:grid-cols-3 mb-3">
-                      <div>
-                        <Label className="text-xs mb-1 block">Post</Label>
-                        <select
-                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                          value={refinePostId}
-                          onChange={(e) => { setRefinePostId(e.target.value); setRefineResult(null); }}
-                        >
-                          <option value="">Select a post</option>
-                          {posts.filter(p => p.status === 'PUBLISHED').map(p => (
-                            <option key={p.id} value={p.id}>{p.caption.slice(0, 50)}...</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label className="text-xs mb-1 block">Refinement Type</Label>
-                        <select
-                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                          value={refineType}
-                          onChange={(e) => setRefineType(e.target.value)}
-                        >
-                          <option value="caption">Rewrite Caption</option>
-                          <option value="hashtags">Optimize Hashtags</option>
-                          <option value="media_suggestion">Media Suggestions</option>
-                        </select>
-                      </div>
-                      {refineType === 'caption' && (
-                        <div>
-                          <Label className="text-xs mb-1 block">Tone</Label>
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>AI Post Refinement</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Browse your published posts by performance, select one to compare engagement, and get AI-powered caption rewrites, hashtag suggestions, or media improvement tips.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {!combinedInsights ? (
+                    <div className="text-center py-6 text-muted-foreground">
+                      <p className="text-sm mb-3">Load insights to see post performance data and pick posts for refinement.</p>
+                      <Button variant="outline" size="sm" onClick={() => fetchCombinedInsights(insightsPlatformFilter)} disabled={isLoadingCombined}>
+                        {isLoadingCombined ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Loading...</> : 'Load Insights'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Browse controls */}
+                      <div className="flex flex-wrap items-center gap-3 mb-3">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs whitespace-nowrap">Show</Label>
                           <select
-                            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                            value={refineTone}
-                            onChange={(e) => setRefineTone(e.target.value)}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                            value={refinePostCount}
+                            onChange={(e) => setRefinePostCount(Number(e.target.value))}
                           >
-                            <option value="casual">Casual</option>
-                            <option value="professional">Professional</option>
-                            <option value="storytelling">Storytelling</option>
-                            <option value="direct_cta">Direct CTA</option>
+                            <option value={5}>5 posts</option>
+                            <option value={10}>10 posts</option>
+                            <option value={25}>25 posts</option>
+                            <option value={50}>50 posts</option>
                           </select>
                         </div>
-                      )}
-                    </div>
-                    <Button
-                      onClick={() => refinePost(refinePostId)}
-                      disabled={!refinePostId || isRefining}
-                    >
-                      {isRefining ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Refining...</> : 'Generate Refinement'}
-                    </Button>
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs whitespace-nowrap">Sort by</Label>
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                            value={refinePostSort}
+                            onChange={(e) => setRefinePostSort(e.target.value)}
+                          >
+                            <option value="engagement">Engagement</option>
+                            <option value="likes">Likes</option>
+                            <option value="reach">Reach</option>
+                            <option value="date">Date</option>
+                          </select>
+                        </div>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length ?? 0} posts with insights
+                        </span>
+                      </div>
 
-                    {refineResult && (
-                      <div className="mt-4 space-y-3">
-                        {refineResult.insight && (
-                          <div className="text-xs text-muted-foreground">
-                            This post: <span className="text-red-600 font-semibold">{refineResult.insight.engagement.toFixed(1)}% eng.</span> · Your average: <span className="font-semibold">{refineResult.insight.avgEngagement.toFixed(1)}%</span>
-                          </div>
-                        )}
-                        {refineResult.refinedCaption && (
-                          <div>
-                            <p className="text-xs font-semibold mb-1">Refined Caption:</p>
-                            <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{refineResult.refinedCaption}</div>
-                            {refineResult.explanation && <p className="text-xs text-muted-foreground mt-1">{refineResult.explanation}</p>}
-                            {refineResult.keyImprovements?.length > 0 && (
-                              <div className="mt-2 space-y-1">
-                                {refineResult.keyImprovements.map((imp: string, i: number) => (
-                                  <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-green-600">✓</span>{imp}</div>
-                                ))}
+                      {/* Post cards */}
+                      {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length > 0 ? (
+                        <div className="space-y-2 mb-4 max-h-[28rem] overflow-y-auto pr-1">
+                          {(combinedInsights.postTable as any[])
+                            .filter((p: any) => p.platformInsights?.length > 0)
+                            .sort((a: any, b: any) => {
+                              const getVal = (p: any) => {
+                                const ins = p.platformInsights?.[0];
+                                if (!ins) return 0;
+                                if (refinePostSort === 'engagement') return ins.engagement ?? 0;
+                                if (refinePostSort === 'likes') return ins.likes ?? 0;
+                                if (refinePostSort === 'reach') return ins.reach ?? 0;
+                                if (refinePostSort === 'date') return new Date(p.updatedAt).getTime();
+                                return 0;
+                              };
+                              return getVal(b) - getVal(a);
+                            })
+                            .slice(0, refinePostCount)
+                            .map((post: any) => {
+                              const ins = post.platformInsights?.[0];
+                              const isSelected = refinePostId === post.postId;
+                              const engColor = !ins ? '' : ins.engagement < 1 ? 'text-red-600' : ins.engagement < 3 ? 'text-amber-600' : 'text-green-600';
+                              return (
+                                <div
+                                  key={post.postId}
+                                  onClick={() => { setRefinePostId(isSelected ? '' : post.postId); setRefineResult(null); }}
+                                  className={`rounded-lg border p-3 cursor-pointer transition-colors ${isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'hover:bg-muted/40'}`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        {post.account && (
+                                          <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase tracking-wide">
+                                            {post.account.accountType}
+                                          </span>
+                                        )}
+                                        <span className="text-xs text-muted-foreground">
+                                          {post.updatedAt ? new Date(post.updatedAt).toLocaleDateString() : ''}
+                                        </span>
+                                        {isSelected && <span className="text-xs text-primary font-medium ml-auto">Selected</span>}
+                                      </div>
+                                      <p className="text-sm line-clamp-2 leading-snug">{post.caption}</p>
+                                    </div>
+                                    {ins && (
+                                      <div className="flex-shrink-0 text-right">
+                                        <div className={`text-lg font-bold leading-none ${engColor}`}>
+                                          {ins.engagement?.toFixed(1)}%
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">engagement</div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {ins && (
+                                    <div className="flex gap-4 mt-2 text-xs text-muted-foreground border-t pt-2">
+                                      <span><span className="font-medium text-foreground">{ins.likes?.toLocaleString() ?? 0}</span> likes</span>
+                                      <span><span className="font-medium text-foreground">{ins.comments?.toLocaleString() ?? 0}</span> comments</span>
+                                      <span><span className="font-medium text-foreground">{ins.reach?.toLocaleString() ?? 0}</span> reach</span>
+                                      {ins.saves > 0 && <span><span className="font-medium text-foreground">{ins.saves?.toLocaleString()}</span> saves</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-4 mb-4 text-center text-sm text-muted-foreground">
+                          No published posts with insights found. Fetch post insights from the Insights tab to see performance data here.
+                        </div>
+                      )}
+
+                      {/* Refinement controls — shown only when a post is selected */}
+                      {refinePostId && (
+                        <div className="rounded-lg border p-3 space-y-3 bg-muted/20">
+                          <p className="text-xs font-semibold">Refinement Options</p>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div>
+                              <Label className="text-xs mb-1 block">Type</Label>
+                              <select
+                                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                value={refineType}
+                                onChange={(e) => setRefineType(e.target.value)}
+                              >
+                                <option value="caption">Rewrite Caption</option>
+                                <option value="hashtags">Optimize Hashtags</option>
+                                <option value="media_suggestion">Media Suggestions</option>
+                              </select>
+                            </div>
+                            {refineType === 'caption' && (
+                              <div>
+                                <Label className="text-xs mb-1 block">Tone</Label>
+                                <select
+                                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                  value={refineTone}
+                                  onChange={(e) => setRefineTone(e.target.value)}
+                                >
+                                  <option value="casual">Casual</option>
+                                  <option value="professional">Professional</option>
+                                  <option value="storytelling">Storytelling</option>
+                                  <option value="direct_cta">Direct CTA</option>
+                                </select>
                               </div>
                             )}
                           </div>
-                        )}
-                        {refineResult.suggestedHashtags?.length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold mb-1">Suggested Hashtags:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {refineResult.suggestedHashtags.map((tag: string, i: number) => (
-                                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">{tag}</span>
+                          <Button
+                            onClick={() => refinePost(refinePostId)}
+                            disabled={isRefining}
+                          >
+                            {isRefining ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Refining...</> : 'Generate Refinement'}
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Results */}
+                      {refineResult && (
+                        <div className="mt-4 space-y-3">
+                          {refineResult.insight && (
+                            <div className="text-xs text-muted-foreground">
+                              This post: <span className="text-red-600 font-semibold">{refineResult.insight.engagement.toFixed(1)}% eng.</span> · Your average: <span className="font-semibold">{refineResult.insight.avgEngagement.toFixed(1)}%</span>
+                            </div>
+                          )}
+                          {refineResult.refinedCaption && (
+                            <div>
+                              <p className="text-xs font-semibold mb-1">Refined Caption:</p>
+                              <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{refineResult.refinedCaption}</div>
+                              {refineResult.explanation && <p className="text-xs text-muted-foreground mt-1">{refineResult.explanation}</p>}
+                              {refineResult.keyImprovements?.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  {refineResult.keyImprovements.map((imp: string, i: number) => (
+                                    <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-green-600">✓</span>{imp}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {refineResult.suggestedHashtags?.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold mb-1">Suggested Hashtags:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {refineResult.suggestedHashtags.map((tag: string, i: number) => (
+                                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">{tag}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {refineResult.suggestions?.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold">Media Suggestions:</p>
+                              {refineResult.suggestions.map((s: string, i: number) => (
+                                <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-amber-600">•</span>{s}</div>
                               ))}
                             </div>
-                          </div>
-                        )}
-                        {refineResult.suggestions?.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-xs font-semibold">Media Suggestions:</p>
-                            {refineResult.suggestions.map((s: string, i: number) => (
-                              <div key={i} className="text-xs flex items-start gap-1.5"><span className="text-amber-600">•</span>{s}</div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* ---- A/B Test Tracker (8e) ---- */}
               <Card className="mb-6">
