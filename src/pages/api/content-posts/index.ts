@@ -144,7 +144,6 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       ? targetPlatforms
       : ['INSTAGRAM'];
     const isLinkedInOnly = platforms.every(p => p === 'LINKEDIN');
-    const isXOnly = platforms.every(p => p === 'X');
     const hasInstagram = platforms.includes('INSTAGRAM');
 
     // Only enforce Instagram's 2,200 char limit when Instagram is included and there's no LinkedIn-only post
