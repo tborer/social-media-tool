@@ -1605,7 +1605,7 @@ export default function Dashboard() {
                         <CardDescription>
                           {account.accountType === "INSTAGRAM" ? "Instagram" :
                            account.accountType === "LINKEDIN" ? "LinkedIn" :
-                           account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"}
+                           account.accountType === "BLUESKY" ? "Bluesky" : "X"}
                         </CardDescription>
                         {account.tokenExpiresAt && (() => {
                           const expiresAt = new Date(account.tokenExpiresAt!);
@@ -1686,7 +1686,7 @@ export default function Dashboard() {
                               <AlertDialogDescription>
                                 This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" :
                                 account.accountType === "LINKEDIN" ? "LinkedIn" :
-                                account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
+                                account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
                                 This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -1711,7 +1711,7 @@ export default function Dashboard() {
                                       title: "Success",
                                       description: `${account.accountType === "INSTAGRAM" ? "Instagram" :
                                       account.accountType === "LINKEDIN" ? "LinkedIn" :
-                                      account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
+                                      account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
                                     });
                                   } catch (error) {
                                     toast({
