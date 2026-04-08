@@ -28,11 +28,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!isLinkedInConfigured()) {
-      logger.error('LinkedIn OAuth not configured — missing LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, or LINKEDIN_REDIRECT_URI');
+      const missing = [
+        !process.env.LINKEDIN_CLIENT_ID && 'LINKEDIN_CLIENT_ID',
+        !process.env.LINKEDIN_CLIENT_SECRET && 'LINKEDIN_CLIENT_SECRET',
+        !process.env.LINKEDIN_REDIRECT_URI && 'LINKEDIN_REDIRECT_URI',
+      ].filter(Boolean).join(', ');
+      console.error('[LinkedIn connect] OAuth not configured — missing env vars:', missing);
+      logger.error('LinkedIn OAuth not configured — missing env vars: ' + missing);
       return res.redirect(
         '/dashboard?error=' +
           encodeURIComponent(
-            'LinkedIn OAuth is not configured on the server. An administrator must set LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, and LINKEDIN_REDIRECT_URI.'
+            `LinkedIn OAuth is not configured on the server. Missing: ${missing}`
           )
       );
     }
@@ -50,6 +56,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const authUrl = getAuthorizationUrl(state);
 
+    console.log('[LinkedIn connect] Redirecting user to LinkedIn OAuth', {
+      userId: user.id,
+      redirectUri: process.env.LINKEDIN_REDIRECT_URI,
+      // Log the scopes from the URL for easy debugging
+      scopes: new URL(authUrl).searchParams.get('scope'),
+    });
     logger.info('Redirecting user to LinkedIn OAuth', { userId: user.id });
     return res.redirect(authUrl);
   } catch (error) {
