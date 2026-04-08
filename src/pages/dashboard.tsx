@@ -1216,6 +1216,46 @@ export default function Dashboard() {
     }
   };
 
+  // Sync Instagram posts and fetch their insights
+  const [isSyncingIgPosts, setIsSyncingIgPosts] = useState(false);
+  const [syncResult, setSyncResult] = useState<any>(null);
+
+  const syncIgPosts = async (postLimit = 25) => {
+    const igAccount = accounts.find((a: SocialMediaAccount) => a.accountType === 'INSTAGRAM');
+    if (!igAccount) {
+      toast({ variant: "destructive", title: "No Instagram account", description: "Connect an Instagram account first." });
+      return;
+    }
+    setIsSyncingIgPosts(true);
+    setSyncResult(null);
+    try {
+      const response = await fetch('/api/insights/sync-ig-posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: igAccount.id, fetchInsights: true, limit: postLimit }),
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Sync failed');
+      }
+      setSyncResult(data);
+      toast({ title: "Instagram Sync Complete", description: `Imported ${data.imported} new posts, fetched insights for ${data.insightsFetched} posts.` });
+      // Reload combined insights to reflect new data
+      await fetchCombinedInsights(insightsPlatformFilter);
+      // Reload posts list
+      const postsRes = await fetch('/api/content-posts', { credentials: 'include' });
+      if (postsRes.ok) {
+        const postsData = await postsRes.json();
+        setPosts(postsData);
+      }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Sync Error", description: error instanceof Error ? error.message : "Failed to sync Instagram posts" });
+    } finally {
+      setIsSyncingIgPosts(false);
+    }
+  };
+
   // Refresh LinkedIn/X insights for an account
   const refreshPlatformAccountInsights = async (accountId: string, platform: 'LINKEDIN' | 'X') => {
     setIsFetchingInsights(true);
@@ -3568,9 +3608,20 @@ export default function Dashboard() {
                             <option value="date">Date</option>
                           </select>
                         </div>
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length ?? 0} posts with insights
-                        </span>
+                        <div className="flex items-center gap-2 ml-auto">
+                          <span className="text-xs text-muted-foreground">
+                            {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length ?? 0} posts with insights
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => syncIgPosts(refinePostCount)}
+                            disabled={isSyncingIgPosts}
+                          >
+                            {isSyncingIgPosts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : 'Sync IG Posts'}
+                          </Button>
+                        </div>
                       </div>
 
                       {/* Post cards */}
@@ -3638,8 +3689,25 @@ export default function Dashboard() {
                             })}
                         </div>
                       ) : (
-                        <div className="rounded-lg border border-dashed p-4 mb-4 text-center text-sm text-muted-foreground">
-                          No published posts with insights found. Fetch post insights from the Insights tab to see performance data here.
+                        <div className="rounded-lg border border-dashed p-6 mb-4 text-center">
+                          <p className="text-sm text-muted-foreground mb-1">No published posts with insights found.</p>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Posts made directly on Instagram need to be synced first. Click below to import your Instagram posts and fetch their insights.
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => syncIgPosts(25)}
+                            disabled={isSyncingIgPosts}
+                          >
+                            {isSyncingIgPosts ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Syncing...</> : 'Sync Instagram Posts'}
+                          </Button>
+                          {syncResult && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Imported {syncResult.imported} posts, fetched insights for {syncResult.insightsFetched}.
+                              {syncResult.errors?.length > 0 && ` (${syncResult.errors.length} errors)`}
+                            </p>
+                          )}
                         </div>
                       )}
 

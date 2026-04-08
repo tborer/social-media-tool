@@ -56,6 +56,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     // Cross-platform post table: all published posts with their latest insight per platform
+    const totalPostCount = await prisma.contentPost.count({ where: { userId: user.id } });
+    const publishedPostCount = await prisma.contentPost.count({ where: { userId: user.id, status: 'PUBLISHED' } });
+    logger.info('Combined insights – post counts', { userId: user.id, totalPostCount, publishedPostCount, platformFilter });
+
     const publishedPosts = await prisma.contentPost.findMany({
       where: { userId: user.id, status: 'PUBLISHED' },
       include: {
@@ -69,6 +73,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       orderBy: { updatedAt: 'desc' },
       take: 100,
+    });
+
+    const postsWithInsights = publishedPosts.filter((p) => p.postInsights.length > 0).length;
+    const postsWithIgMediaId = publishedPosts.filter((p) => p.igMediaId).length;
+    logger.info('Combined insights – published post details', {
+      userId: user.id,
+      publishedPostsFetched: publishedPosts.length,
+      postsWithInsights,
+      postsWithIgMediaId,
+      postsWithoutIgMediaId: publishedPosts.length - postsWithIgMediaId,
     });
 
     const postTable = publishedPosts.map((post) => {
