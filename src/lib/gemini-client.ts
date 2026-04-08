@@ -1,6 +1,26 @@
 import { Buffer } from 'buffer';
 import prisma from '@/lib/prisma';
 
+type BrandVoice = {
+  tone?: string | null;
+  audience?: string | null;
+  personality?: string | null;
+  keyPhrases?: string[];
+  avoidPhrases?: string[];
+  examples?: string | null;
+};
+
+function buildBrandVoiceInstructions(brandVoice: BrandVoice): string {
+  const parts: string[] = [];
+  if (brandVoice.tone) parts.push(`Tone: ${brandVoice.tone}`);
+  if (brandVoice.audience) parts.push(`Target audience: ${brandVoice.audience}`);
+  if (brandVoice.personality) parts.push(`Brand personality: ${brandVoice.personality}`);
+  if (brandVoice.keyPhrases?.length) parts.push(`Always incorporate these phrases or themes: ${brandVoice.keyPhrases.join(', ')}`);
+  if (brandVoice.avoidPhrases?.length) parts.push(`Never use these words or phrases: ${brandVoice.avoidPhrases.join(', ')}`);
+  if (brandVoice.examples) parts.push(`Example captions that match the desired voice:\n${brandVoice.examples}`);
+  return parts.length > 0 ? `\n\nBrand voice guidelines:\n${parts.join('\n')}` : '';
+}
+
 export class GeminiClient {
   private apiKey: string;
   private baseUrl: string = 'https://generativelanguage.googleapis.com/v1beta';
@@ -32,23 +52,24 @@ export class GeminiClient {
     }
   }
 
-  async generateCaptionWithMessage(prompt: string): Promise<{ message: string, caption: string }> {
+  async generateCaptionWithMessage(prompt: string, brandVoice?: BrandVoice): Promise<{ message: string, caption: string }> {
     try {
       const url = `${this.baseUrl}/models/gemini-1.5-pro:generateContent?key=${this.apiKey}`;
-      
+      const brandVoiceInstructions = brandVoice ? buildBrandVoiceInstructions(brandVoice) : '';
+
       const payload = {
         contents: [{
           parts: [
-            { 
-              text: `Generate both a message analyzing the content request and an Instagram caption based on this prompt: "${prompt}".
-              
+            {
+              text: `Generate both a message analyzing the content request and a caption based on this prompt: "${prompt}".
+
               Your response should be in this format:
-              
+
               MESSAGE:
               [A brief analysis of the content request, explaining what kind of content would work well for this prompt]
-              
+
               CAPTION:
-              [An engaging Instagram caption with relevant hashtags that would work well for a post based on this prompt]`
+              [An engaging caption with relevant hashtags that would work well for a post based on this prompt]${brandVoiceInstructions}`
             }
           ]
         }],
@@ -75,13 +96,13 @@ export class GeminiClient {
       }
 
       const data = await response.json();
-      
+
       // Extract text content
       let fullText = '';
-      
+
       if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
         const parts = data.candidates[0].content.parts || [];
-        
+
         for (const part of parts) {
           if (part.text) {
             fullText += part.text;
@@ -93,18 +114,16 @@ export class GeminiClient {
       const messageParts = fullText.split('MESSAGE:');
       let message = '';
       let caption = '';
-      
+
       if (messageParts.length > 1) {
         const captionParts = messageParts[1].split('CAPTION:');
         if (captionParts.length > 1) {
           message = captionParts[0].trim();
           caption = captionParts[1].trim();
         } else {
-          // If format is not as expected, use the whole text as caption
           caption = messageParts[1].trim();
         }
       } else {
-        // If format is not as expected, use the whole text as caption
         caption = fullText.trim();
       }
 
@@ -115,16 +134,37 @@ export class GeminiClient {
     }
   }
 
-  async generateContent(prompt: string, includeImage: boolean = true): Promise<{ caption: string, imageBase64?: string }> {
+  async generateContent(prompt: string, includeImage: boolean = true, style?: string, aspectRatio?: string): Promise<{ caption: string, imageBase64?: string }> {
     try {
       const url = `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`;
-      
+
       const responseModalities = includeImage ? ["Text", "Image"] : ["Text"];
-      
+
+      // Build style and aspect ratio hints for the prompt
+      const styleDescriptions: Record<string, string> = {
+        photorealistic: 'photorealistic, high-quality photograph',
+        artistic: 'artistic, painterly, creative illustration',
+        cartoon: 'cartoon style, colorful, vector art',
+        minimalist: 'minimalist, clean, simple, modern design',
+        vintage: 'vintage, retro aesthetic, film grain',
+        professional: 'professional, polished, corporate',
+        cinematic: 'cinematic, dramatic lighting, movie-quality',
+      };
+      const aspectRatioHints: Record<string, string> = {
+        square: 'square aspect ratio (1:1)',
+        portrait: 'portrait aspect ratio (4:5)',
+        landscape: 'landscape aspect ratio (16:9)',
+        story: 'vertical story format (9:16)',
+      };
+
+      const styleHint = style && styleDescriptions[style] ? `, ${styleDescriptions[style]}` : '';
+      const aspectHint = aspectRatio && aspectRatioHints[aspectRatio] ? `, ${aspectRatioHints[aspectRatio]}` : '';
+      const enhancedPrompt = prompt + styleHint + aspectHint;
+
       const payload = {
         contents: [{
           parts: [
-            { text: prompt }
+            { text: enhancedPrompt }
           ]
         }],
         generationConfig: { responseModalities }
@@ -145,14 +185,14 @@ export class GeminiClient {
       }
 
       const data = await response.json();
-      
+
       // Extract text content
       let caption = '';
       let imageBase64 = '';
-      
+
       if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
         const parts = data.candidates[0].content.parts || [];
-        
+
         for (const part of parts) {
           if (part.text) {
             caption += part.text;
@@ -170,22 +210,20 @@ export class GeminiClient {
     }
   }
 
-  async generateImages(prompt: string, count: number = 1): Promise<{ images: string[] }> {
+  async generateImages(prompt: string, count: number = 1, style?: string, aspectRatio?: string): Promise<{ images: string[] }> {
     try {
       // Gemini currently doesn't support generating multiple images in one request
       // So we'll make multiple requests if count > 1
       const imagePromises = Array(Math.min(count, 25)).fill(null).map(async () => {
-        const result = await this.generateContent(prompt, true);
-        
+        const result = await this.generateContent(prompt, true, style, aspectRatio);
+
         if (result.imageBase64) {
-          // Return actual image data URL for better user experience
-          // Note: In production, you should upload this to a storage service
           return `data:image/png;base64,${result.imageBase64}`;
         }
-        
+
         return '';
       });
-      
+
       const images = await Promise.all(imagePromises);
       return { images: images.filter(img => img !== '') };
     } catch (error) {

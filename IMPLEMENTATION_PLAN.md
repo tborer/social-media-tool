@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
 **Last Updated**: April 8, 2026
-**Status**: Phases 1–4 Implemented (Features 6–8 Complete)
+**Status**: Phases 1–4 Implemented (Features 6–8 Complete), Phase 5 Feature 9 Complete
 
 ---
 
@@ -373,11 +373,25 @@ AI uses the aggregated performance data as context to give specific, actionable 
 
 ## Phase 5: Future Enhancements (Planned)
 
-### Feature 9: Advanced AI Content Generation
-- AI video generation (pending suitable API availability)
-- Enhanced image generation options (style presets, aspect ratios)
-- Brand voice customization: save a brand voice profile that all AI-generated captions conform to
-- Image-to-video conversion
+### Feature 9: Advanced AI Content Generation ✅ COMPLETED
+
+**What was built:**
+- **Brand voice customization** — save a brand voice profile (tone, target audience, brand personality, key phrases to include/avoid, example captions); all AI-generated captions automatically conform to it via the `/api/ai/generate-caption` endpoint
+- **Enhanced image generation** — style presets (photorealistic, artistic, cartoon, minimalist, vintage, professional, cinematic) and aspect ratios (square 1:1, portrait 4:5, landscape 16:9, story 9:16) selectable in the AI Content Generator UI and passed through to both DALL-E 3 and Gemini
+- AI video generation: deferred (pending suitable API availability)
+- Image-to-video conversion: deferred (pending suitable API availability)
+
+**Key files:**
+- `prisma/schema.prisma` — added 6 brand voice fields to `UserSettings`
+- `prisma/migrations/20260408000000_add_brand_voice/migration.sql` — brand voice columns
+- `src/pages/api/user/settings.ts` — GET/POST updated for brand voice fields
+- `src/pages/api/ai/generate-caption.ts` — auto-fetches user's brand voice and injects it into the prompt
+- `src/pages/api/ai/generate-images.ts` — accepts `style` and `aspectRatio` params
+- `src/lib/openai-client.ts` — `generateCaptionWithMessage(prompt, brandVoice?)`, `generateImages(prompt, count, style?, aspectRatio?)`
+- `src/lib/gemini-client.ts` — same signatures; aspect ratio and style woven into the image prompt
+- `src/lib/openai.ts`, `src/lib/gemini.ts` — updated wrapper signatures
+- `src/pages/settings.tsx` — new **Brand Voice** tab with tone selector, audience, personality, key phrases, avoid phrases, examples
+- `src/components/AIContentGenerator.tsx` — style preset grid + aspect ratio selector added before the prompt input
 
 ### Feature 10: Production Polish
 - End-to-end testing suite

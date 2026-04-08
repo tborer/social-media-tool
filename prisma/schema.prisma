@@ -131,18 +131,25 @@ model Log {
 }
 
 model UserSettings {
-  id                String    @id @default(uuid())
-  userId            String    @unique @db.Uuid
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  openaiApiKey      String?
-  geminiApiKey      String?
-  openaiMonthlyLimit Int      @default(100)
-  geminiMonthlyLimit Int      @default(100)
-  openaiUsageCount  Int       @default(0)
-  geminiUsageCount  Int       @default(0)
-  usageResetDate    DateTime  @default(now())
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  userId                String    @unique @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  openaiApiKey          String?
+  geminiApiKey          String?
+  openaiMonthlyLimit    Int       @default(100)
+  geminiMonthlyLimit    Int       @default(100)
+  openaiUsageCount      Int       @default(0)
+  geminiUsageCount      Int       @default(0)
+  usageResetDate        DateTime  @default(now())
+  // Brand Voice fields
+  brandVoiceTone        String?   // casual | professional | storytelling | humorous | inspirational | direct
+  brandVoiceAudience    String?   // e.g. "millennials interested in fitness"
+  brandVoicePersonality String?   // e.g. "friendly, energetic, authentic"
+  brandVoiceKeyPhrases  String[]  // phrases to include
+  brandVoiceAvoidPhrases String[] // phrases to avoid
+  brandVoiceExamples    String?   // example captions that exemplify the voice
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 model PostInsight {
