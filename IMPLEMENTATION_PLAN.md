@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
-**Last Updated**: April 5, 2026
-**Status**: Phases 1–3 Implemented, Phase 4 Planned
+**Last Updated**: April 8, 2026
+**Status**: Phases 1–3 Complete · Phase 4 In Progress · Phase 5 Planned
 
 ---
 
@@ -144,13 +144,20 @@ A social media management tool built with Next.js, Prisma, PostgreSQL (Supabase)
 
 ---
 
-## Phase 4: Multi-Platform Expansion & Combined Insights (Planned)
+## Phase 4: Multi-Platform Expansion & Combined Insights 🚧 IN PROGRESS
 
 The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate performance data from all connected platforms into a unified insights experience that actively helps users understand what is working, what is not, and how to improve it. Every feature should serve the north-star goal of **increasing engagement through data-driven refinement**.
 
 ---
 
-### Feature 6: LinkedIn & X Account Connection
+### Feature 6: LinkedIn & X Account Connection ✅ COMPLETED
+
+**Progress notes (April 2026):**
+- LinkedIn OAuth 2.0 flow fully implemented: `connect.ts` → LinkedIn consent screen → `callback.ts` → token exchange → `/v2/me` profile fetch → encrypted token stored in DB
+- X OAuth 2.0 PKCE flow fully implemented with refresh token rotation
+- Dashboard UI updated: "Connect with LinkedIn" and "Connect with X" OAuth buttons, reconnect flow, per-account expiry warnings, success toasts for all OAuth completions
+- Scopes in use: LinkedIn — `profile email w_member_social`; X — `tweet.read tweet.write users.read offline.access`
+- Token encryption (AES-256-GCM) applied to both platforms when `ENCRYPTION_KEY` is set
 
 **What to build:**
 
@@ -189,7 +196,13 @@ The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate per
 
 ---
 
-### Feature 7: Multi-Platform Publishing
+### Feature 7: Multi-Platform Publishing 🚧 PARTIALLY COMPLETE
+
+**Progress notes (April 2026):**
+- LinkedIn posting implemented: text-only and single-image posts via `/rest/posts` (2024 API), image upload via LinkedIn Images API, `linkedinPostId` stored on publish
+- X posting implemented: text tweets, media upload (chunked INIT→APPEND→FINALIZE), auto thread-splitting for captions > 280 chars, `xPostId` stored
+- Facebook and Bluesky posting remain unimplemented (see Phase 5, Feature 11)
+- Multi-platform selector UI not yet built (see Phase 5, Feature 11)
 
 **What to build:**
 
@@ -362,15 +375,361 @@ AI uses the aggregated performance data as context to give specific, actionable 
 
 ---
 
-## Phase 5: Future Enhancements (Planned)
+## Phase 5: Content Quality, AI Advisor & Platform Expansion (Planned)
 
-### Feature 9: Advanced AI Content Generation
+Phase 5 deepens the value of the insights system and broadens the platform reach. The north-star goal is a **closed loop**: publish → measure → AI advises → improve draft → publish again. Every feature below serves a step in that loop.
+
+---
+
+### Feature 9: Copy Post to Draft from Insights
+
+Enable users to duplicate any published post (high or low performing) directly into a new draft so it can be revised and re-published. This is the foundation of the iterative improvement loop.
+
+**What to build:**
+
+**UI changes**
+- Add a "Copy to Draft" button to every post row in the Insights tab (post performance table) and to the individual post detail view
+- On click, open a pre-filled "Create/Edit Post" dialog with:
+  - Caption copied from the original
+  - Image URL carried over (if present)
+  - Platform selection defaulting to the original post's platform
+  - A subtle banner: "Copied from post published on [date] — [metric summary, e.g., 0.4% engagement]"
+- The copied draft is saved with status `DRAFT` and `originalPostId` reference (see schema below)
+
+**API changes**
+- `POST /api/content-posts/[id]/copy-to-draft` — creates a new `ContentPost` record with `status: DRAFT`, copies caption + imageUrl, records `originalPostId` as a reference for tracking improvement chains
+
+**Schema changes**
+- Add `originalPostId String?` to `ContentPost` — nullable self-referential FK pointing to the post this draft was copied from; used to build a lineage chain and later compare performance
+
+**Key files to create / modify:**
+- `src/pages/api/content-posts/[id]/copy-to-draft.ts` — new endpoint
+- `src/pages/dashboard.tsx` — "Copy to Draft" button in Insights post table + detail view, pre-filled dialog logic
+- `prisma/schema.prisma` — add `originalPostId` to `ContentPost`
+
+**Migration:** add `originalPostId String?` self-relation to `ContentPost`
+
+---
+
+### Feature 10: Facebook & Bluesky Account Connection
+
+Extend account management to support Facebook Pages and Bluesky (AT Protocol) so they can be used for publishing in Feature 11.
+
+**What to build:**
+
+#### Facebook
+
+**OAuth flow**
+- Use Facebook Login (OAuth 2.0) via the Meta Graph API
+- Scopes: `pages_manage_posts`, `pages_read_engagement`, `pages_show_list`, `public_profile`
+- Flow: user authorizes → app receives short-lived user token → exchange for long-lived token (60-day) → fetch list of Pages the user manages → store the selected Page's `page_access_token` and `pageId`
+- Callback endpoint: `GET /api/auth/facebook/callback`
+- Token refresh: Facebook page access tokens derived from long-lived user tokens do not expire — re-fetch via `/me/accounts` when needed
+
+**Schema additions to `SocialMediaAccount`**
+- `facebookPageId String?` — the Page ID used as the actor for all Page posts
+- `facebookPageName String?` — display name for the connected Page
+
+**UI**
+- Add `FACEBOOK` to the account type selector in the Accounts tab
+- "Connect Facebook Page" OAuth button → redirects to Facebook Login with page permissions
+- After OAuth: if user manages multiple Pages, show a Page picker dialog before saving
+
+#### Bluesky
+
+**Connection flow**
+- Bluesky uses the AT Protocol (ATP) — no traditional OAuth; authentication is via App Passwords
+- User enters their Bluesky handle (e.g., `user.bsky.social`) and an App Password generated at `bsky.app/settings/app-passwords`
+- App calls `POST https://bsky.social/xrpc/com.atproto.server.createSession` with `identifier` + `password` to get a session JWT (accessJwt + refreshJwt)
+- Store encrypted accessJwt and refreshJwt; refresh via `com.atproto.server.refreshSession` when needed
+- Note: App Passwords are scoped and do not expose the user's main password
+
+**Schema additions to `SocialMediaAccount`**
+- `blueskyHandle String?` — the user's AT identifier (DID or handle)
+- `blueskyDid String?` — the resolved DID (decentralized identifier), used as the actor in all ATP requests
+
+**UI**
+- Add `BLUESKY` to the account type selector
+- Instead of an OAuth redirect button, show a form: handle input + App Password input
+- On submit, call a new API endpoint to create the session and store tokens
+- Link to Bluesky's App Password settings page for guidance
+
+**Key files to create / modify:**
+- `src/pages/api/auth/facebook/connect.ts` — initiate Facebook OAuth
+- `src/pages/api/auth/facebook/callback.ts` — exchange token, fetch pages, store
+- `src/lib/facebook-oauth.ts` — Facebook OAuth helpers
+- `src/pages/api/auth/bluesky/connect.ts` — create ATP session, store tokens
+- `src/lib/bluesky-client.ts` — ATP session helpers (createSession, refreshSession)
+- `src/pages/dashboard.tsx` — account UI for Facebook (OAuth button + page picker) and Bluesky (form-based)
+- `prisma/schema.prisma` — `FACEBOOK` to AccountType enum, add `facebookPageId`, `facebookPageName`, `blueskyHandle`, `blueskyDid`
+
+**Migration:** extend `AccountType` enum + add new nullable columns to `SocialMediaAccount`
+
+---
+
+### Feature 11: Enhanced Multi-Platform Publishing UI
+
+Redesign the post creation UI to support publishing to any combination of Instagram, LinkedIn, X, Facebook, and Bluesky. Fields that are shared across platforms are entered once; fields that are platform-specific get their own dedicated input area.
+
+**What to build:**
+
+#### Shared vs. Platform-Specific Fields
+
+| Field | Shared | Platform-specific notes |
+|---|---|---|
+| Image / media | ✅ Shared | Video type only relevant for IG (REELS vs FEED); FB accepts video too |
+| Hashtags | ✅ Shared base | Instagram: in caption or first comment (30 max); LinkedIn: appended (3–5 recommended); X: counted in 280 chars; Facebook: optional; Bluesky: hashtag facets (via rich text) |
+| Schedule time | ✅ Shared | One scheduled time applies to all platforms |
+| Caption / body text | ⚠️ Platform override | Shared base caption + optional per-platform override |
+| X tweet text | ❌ X-only | 280 char hard limit; shown only when X account selected |
+| LinkedIn article intro | ❌ LinkedIn-only | Long-form lead paragraph option (up to 3,000 chars) |
+| Facebook link preview URL | ❌ Facebook-only | Attached link with OG metadata preview |
+| Bluesky external link card | ❌ Bluesky-only | ATP `app.bsky.feed.post` embed card |
+
+#### UI Design
+
+**Platform selector**
+- Multi-select toggle row: Instagram · LinkedIn · X · Facebook · Bluesky
+- Each toggle shows the platform icon; active platforms are highlighted
+- Only accounts the user has connected appear as options
+- Selecting a platform shows its specific fields below the shared fields section
+
+**Shared fields section**
+- Media upload (image or video)
+- Base caption / body (labelled "Caption — applies to all selected platforms unless overridden below")
+- Hashtags (shared pool; platform-specific application explained via tooltip)
+- Schedule picker
+
+**Per-platform override panels** (shown only when that platform is selected)
+- Each panel is collapsible; collapsed by default if the shared caption is short enough
+- **Instagram panel**: character counter (2,200), hashtag count warning (> 30), first-comment hashtag option
+- **LinkedIn panel**: character counter (3,000), hashtag warning (> 5), long-form toggle
+- **X panel**: tweet text field (280 char hard limit with visual counter), thread preview if > 280 chars on base caption
+- **Facebook panel**: link URL field + preview card, audience selector (public / friends)
+- **Bluesky panel**: external link card URL, character counter (300)
+
+**Live preview strip**
+- Row of per-platform preview cards below the form
+- Each card shows how the post will appear on that platform (truncated caption, character count badge, "Will split into N tweets" warning for X)
+
+**Validation**
+- Block publish if any selected platform's content exceeds its hard limit
+- Warn (not block) for soft limits (LinkedIn hashtag count, Instagram hashtag count)
+- Warn if X text will auto-thread
+
+#### API changes
+- Extend `POST /api/social-media-accounts/[id]/post` to route to Facebook and Bluesky publishers
+- Add `platformOverrides` field to `ContentPost`: JSON object keyed by platform with caption override + platform-specific metadata
+
+**Facebook publishing**
+- `POST /{pageId}/feed` with `message` + optional `link`, `object_attachment`
+- Image posts: upload to `/{pageId}/photos` first, then publish
+- Video posts: upload via Resumable Upload API, then publish
+
+**Bluesky publishing**
+- `com.atproto.repo.createRecord` with `$type: app.bsky.feed.post`
+- Image: upload blob via `com.atproto.repo.uploadBlob`, embed in post
+- Rich text: parse hashtags and mentions into ATP facets (byte-range annotations)
+- 300 character limit (grapheme count, not byte count)
+
+**Schema changes**
+- Add `platformOverrides Json?` to `ContentPost` — stores per-platform caption overrides and metadata as `{ "X": { "tweetText": "..." }, "LINKEDIN": { "caption": "..." }, ... }`
+
+**Key files to create / modify:**
+- `src/pages/api/social-media-accounts/[id]/post.ts` — add Facebook + Bluesky publisher branches
+- `src/lib/facebook-client.ts` — Facebook Graph API publish helpers
+- `src/lib/bluesky-client.ts` — ATP post creation, blob upload, rich text facet builder
+- `src/pages/dashboard.tsx` — redesigned post creation dialog (platform selector, per-platform panels, preview strip)
+- `prisma/schema.prisma` — add `platformOverrides Json?` to `ContentPost`
+
+---
+
+### Feature 12: In-Draft AI Post Advisor
+
+Allow users to get AI-powered feedback on a post while it is still being drafted — before publishing. The advisor returns **structured recommendations** parsed from the AI response, displayed inline with one-click "Apply" actions where possible.
+
+**What to build:**
+
+**Trigger**
+- "Get AI Advice" button inside the post creation / edit dialog, positioned near the caption field
+- Available as soon as a caption (and optionally an image) is entered
+- Also available on draft posts in the Posts tab via an "Advise" button on each draft row
+
+**Request payload** (sent to `POST /api/ai/draft-advisor`)
+```json
+{
+  "caption": "...",
+  "platforms": ["INSTAGRAM", "LINKEDIN"],
+  "imageUrl": "...",
+  "scheduledFor": "2026-04-10T19:00:00Z",
+  "accountIds": ["..."],
+  "performanceContext": {
+    "avgEngagementRate": 2.1,
+    "topHashtags": ["#productivity", "#growth"]
+  }
+}
+```
+
+**Structured response schema** (AI returns JSON; server validates before returning to client)
+```json
+{
+  "overallScore": 7.2,
+  "summary": "Solid hook but missing a call-to-action. LinkedIn version is within character limit.",
+  "recommendations": [
+    {
+      "id": "rec_1",
+      "category": "engagement",
+      "priority": "high",
+      "issue": "No call-to-action detected",
+      "suggestion": "End with a question or direct ask, e.g., 'What's your biggest challenge with X?'",
+      "applyAction": "append_cta"
+    },
+    {
+      "id": "rec_2",
+      "category": "hashtags",
+      "priority": "medium",
+      "issue": "Only 2 hashtags — Instagram performs better with 8–15 relevant tags",
+      "suggestion": "Consider adding: #contentmarketing #socialmediatips #growthhacking",
+      "applyAction": "append_hashtags",
+      "applyValue": "#contentmarketing #socialmediatips #growthhacking"
+    },
+    {
+      "id": "rec_3",
+      "category": "timing",
+      "priority": "low",
+      "issue": "Scheduled for Monday 7 AM — below your historical average engagement time",
+      "suggestion": "Your best Instagram window is Tuesday–Thursday 7–9 PM based on past posts",
+      "applyAction": null
+    }
+  ],
+  "platformNotes": {
+    "INSTAGRAM": "Caption length is ideal (under 500 chars for feed). Hashtags should be at the end.",
+    "LINKEDIN": "Consider expanding the middle section — LinkedIn rewards longer, story-driven posts."
+  },
+  "revisedCaption": "...(optional AI-rewritten version of the full caption)..."
+}
+```
+
+**UI display**
+- Slide-out panel or inline card below the caption field
+- Overall score badge (e.g., "7.2 / 10")
+- Each recommendation shown as a card with priority badge (HIGH / MEDIUM / LOW), issue label, and suggestion text
+- "Apply" button on recommendations with an `applyAction` — e.g., appending hashtags or a CTA stub directly into the caption field
+- "Use Revised Caption" button to replace the current caption with the AI-rewritten version
+- Per-platform notes shown in a tab-strip keyed to selected platforms
+
+**API endpoint:** `POST /api/ai/draft-advisor`
+- Auth-protected (Supabase session)
+- Builds a structured prompt from the request, calls OpenAI or Gemini
+- Parses and validates the JSON response (Zod schema) before returning to the client
+- Falls back gracefully if AI returns malformed JSON (returns a plain-text summary)
+
+**Key files to create / modify:**
+- `src/pages/api/ai/draft-advisor.ts` — new endpoint
+- `src/pages/dashboard.tsx` — "Get AI Advice" button + recommendations panel in post creation dialog
+- `src/lib/performance-analyzer.ts` — export `getUserPerformanceContext(userId)` for injecting into the prompt
+
+---
+
+### Feature 13: AI Post Improvement Engine from Insights
+
+From the Insights tab, when viewing a high or low performing post, allow users to invoke an AI engine that returns a configurable number of improved versions of that post. Each version is fully formed, ready to save as a draft.
+
+**What to build:**
+
+**Trigger**
+- "Generate Improved Versions" button on each post in the Insights post performance table and the post detail panel
+- Opens a configuration dialog before calling AI:
+  - **Number of versions** (slider or number input: 1–10, default 5)
+  - **Tone** (multi-select: Casual, Professional, Storytelling, Direct CTA, Humorous)
+  - **Platform target** (defaults to the original post's platform; can be changed to cross-post variants)
+  - **Focus** (optional checkboxes: Improve engagement, Add CTA, Optimize hashtags, Shorten for X, Expand for LinkedIn)
+
+**Request payload** (sent to `POST /api/ai/improve-post`)
+```json
+{
+  "postId": "...",
+  "originalCaption": "...",
+  "platform": "INSTAGRAM",
+  "metrics": {
+    "impressions": 4200,
+    "engagementRate": 0.42,
+    "likes": 12,
+    "comments": 1,
+    "shares": 0,
+    "avgEngagementRate": 2.1
+  },
+  "count": 5,
+  "tones": ["casual", "storytelling"],
+  "focus": ["improve_engagement", "add_cta"]
+}
+```
+
+**Structured response schema** (AI returns JSON; server validates before returning)
+```json
+{
+  "originalPostId": "...",
+  "analysisNote": "This post had 0.42% engagement vs your 2.1% average. Low likes suggest the hook did not resonate. No CTA was detected.",
+  "versions": [
+    {
+      "versionNumber": 1,
+      "tone": "casual",
+      "caption": "...(full rewritten caption)...",
+      "changesSummary": "Rewrote the hook, added a question at the end, trimmed hashtags to 10 relevant tags",
+      "predictedImpact": "Hook-first openers average +38% engagement in your top posts",
+      "hashtags": ["#tag1", "#tag2"]
+    },
+    {
+      "versionNumber": 2,
+      "tone": "storytelling",
+      "caption": "...",
+      "changesSummary": "...",
+      "predictedImpact": "...",
+      "hashtags": []
+    }
+  ]
+}
+```
+
+**UI display**
+- Results shown in a modal / slide-over panel titled "Improved Versions"
+- Analysis note shown at the top in a callout box ("Here's why this post underperformed…")
+- Each version displayed as a card:
+  - Version number + tone badge
+  - Full caption (with character count for selected platform)
+  - Changes summary in a collapsed "What changed?" section
+  - Predicted impact note
+  - **"Save as Draft"** button — calls `POST /api/content-posts/[originalId]/copy-to-draft` with the new caption pre-filled
+  - **"Copy to Clipboard"** button
+- "Save All as Drafts" button at the bottom of the modal
+- After saving, show a toast: "5 drafts created — view them in the Posts tab"
+
+**API endpoint:** `POST /api/ai/improve-post`
+- Auth-protected (Supabase session)
+- Fetches the original post + its `PostInsight` records from the DB
+- Fetches user's performance context via `getUserPerformanceContext(userId)` for comparison metrics
+- Builds a structured prompt with full context (post content, real metrics, user's avg metrics, requested tone/focus)
+- Calls OpenAI GPT-4o (primary) or Gemini (fallback)
+- Validates response with Zod schema; retries once if malformed
+- Returns the validated structured response
+
+**Key files to create / modify:**
+- `src/pages/api/ai/improve-post.ts` — new endpoint
+- `src/pages/dashboard.tsx` — "Generate Improved Versions" button in Insights post table + detail; version card modal; "Save as Draft" integration
+- `src/lib/performance-analyzer.ts` — extend `getUserPerformanceContext` to include per-platform averages
+- `src/pages/api/content-posts/[id]/copy-to-draft.ts` — shared with Feature 9; ensure it accepts an optional `captionOverride` param so the AI version is used instead of the original
+
+---
+
+## Phase 6: Future Enhancements (Planned)
+
+### Feature 14: Advanced AI Content Generation
 - AI video generation (pending suitable API availability)
 - Enhanced image generation options (style presets, aspect ratios)
 - Brand voice customization: save a brand voice profile that all AI-generated captions conform to
 - Image-to-video conversion
 
-### Feature 10: Production Polish
+### Feature 15: Production Polish
 - End-to-end testing suite
 - Performance optimization (query optimization, pagination, caching layer)
 - Enhanced error notifications (email/push alerts for failed scheduled posts)
@@ -410,6 +769,10 @@ AI uses the aggregated performance data as context to give specific, actionable 
 - `ContentPost` — extend: add `targetPlatforms String[]`, `platformPostId String?`
 - `ABTest` — A/B test pair (postAId, postBId, notes, comparedAt)
 
+### Phase 5 Models (Planned)
+- `ContentPost` — extend: add `originalPostId String?` (self-referential FK for copy-to-draft lineage chain), `platformOverrides Json?` (per-platform caption/metadata overrides)
+- `SocialMediaAccount` — extend: add `FACEBOOK` + `BLUESKY` to AccountType enum, `facebookPageId String?`, `facebookPageName String?`, `blueskyHandle String?`, `blueskyDid String?`
+
 ---
 
 ## API Endpoints
@@ -448,24 +811,43 @@ AI uses the aggregated performance data as context to give specific, actionable 
 ### Scheduler
 - `POST /api/scheduler/run` — daily cron (publish scheduled posts, fetch insights)
 
-### Phase 4 Endpoints (Planned)
-**Auth**
+### Phase 4 Endpoints
+**Auth** ✅ Complete
 - `GET /api/auth/linkedin/connect` — initiate LinkedIn OAuth
 - `GET /api/auth/linkedin/callback` — LinkedIn token exchange + store
 - `GET /api/auth/x/connect` — initiate X OAuth 2.0 PKCE
 - `GET /api/auth/x/callback` — X token exchange + store
 - `POST /api/auth/x/refresh` — rotate X access token
 
-**Insights (extended)**
+**Publishing** ✅ Complete (LinkedIn + X)
+- `POST /api/social-media-accounts/[id]/post` — extended to route to LinkedIn and X publishers
+
+**Insights (extended)** ✅ Complete
 - `GET/POST /api/insights/linkedin-insights` — stored/fresh LinkedIn metrics
 - `GET/POST /api/insights/x-insights` — stored/fresh X metrics
 
-**AI Refinement**
+**AI Refinement** (Planned)
 - `POST /api/ai/refine-post` — AI caption/tag/timing refinement with performance context
 
-**A/B Testing**
+**A/B Testing** (Planned)
 - `GET/POST /api/insights/ab-tests` — manage A/B test pairs
 - `GET /api/insights/ab-tests/[id]` — comparison results for a pair
+
+### Phase 5 Endpoints (Planned)
+**Copy to Draft**
+- `POST /api/content-posts/[id]/copy-to-draft` — duplicate a post as a new DRAFT, optionally with a caption override; records `originalPostId` for lineage tracking
+
+**Auth — Facebook & Bluesky**
+- `GET /api/auth/facebook/connect` — initiate Facebook Login OAuth
+- `GET /api/auth/facebook/callback` — exchange token, fetch managed Pages, store
+- `POST /api/auth/bluesky/connect` — create ATP session with handle + App Password, store tokens
+
+**Publishing — Facebook & Bluesky**
+- `POST /api/social-media-accounts/[id]/post` — extended with Facebook Graph API and Bluesky ATP publisher branches
+
+**AI**
+- `POST /api/ai/draft-advisor` — structured AI recommendations for a draft post (score, per-recommendation cards, revised caption)
+- `POST /api/ai/improve-post` — generate N improved versions of a published post using its real performance metrics as context; returns structured version array ready to save as drafts
 
 ---
 
