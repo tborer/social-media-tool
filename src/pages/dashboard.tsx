@@ -41,9 +41,12 @@ type ContentPost = {
   status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "FAILED";
   scheduledFor?: string;
   igMediaId?: string | null;
+  linkedinPostId?: string | null;
+  xPostId?: string | null;
   errorMessage?: string | null;
   retryCount?: number;
   socialMediaAccountId?: string;
+  targetPlatforms: string[];
   socialMediaAccount?: {
     username: string;
     accountType: string;
@@ -176,11 +179,16 @@ export default function Dashboard() {
     caption: "",
     imageUrl: "",
     imageFile: null as File | null,
-    socialMediaAccountId: "",
+    selectedAccountIds: [] as string[],
     contentType: "IMAGE",
     videoType: "FEED" as "FEED" | "REELS",
     scheduledFor: null as string | null
   });
+  // Multi-platform publish dialog state
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [publishingPostId, setPublishingPostId] = useState<string | null>(null);
+  const [publishDialogAccountIds, setPublishDialogAccountIds] = useState<string[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
   
@@ -384,30 +392,28 @@ export default function Dashboard() {
       return;
     }
 
-    // Determine platform-specific caption limit based on selected account
-    const selectedAccount = accounts.find(a => a.id === newPost.socialMediaAccountId);
-    const selectedPlatform = selectedAccount?.accountType ?? 'INSTAGRAM';
-    const captionLimit = selectedPlatform === 'LINKEDIN' ? 3000 : selectedPlatform === 'X' ? null : 2200;
-    const platformName = selectedPlatform === 'LINKEDIN' ? 'LinkedIn' : selectedPlatform === 'X' ? 'X' : 'Instagram';
+    // Determine selected accounts and their platforms
+    const selectedAccounts = accounts.filter(a => newPost.selectedAccountIds.includes(a.id));
+    const selectedPlatforms = selectedAccounts.map(a => a.accountType);
+    const hasInstagram = selectedPlatforms.includes('INSTAGRAM') || selectedAccounts.length === 0;
+    const hasLinkedIn = selectedPlatforms.includes('LINKEDIN');
+    const hasX = selectedPlatforms.includes('X');
 
-    if (captionLimit !== null && newPost.caption.length > captionLimit) {
-      toast({
-        variant: "destructive",
-        title: "Caption too long",
-        description: `Caption is ${newPost.caption.length} characters. ${platformName} allows a maximum of ${captionLimit.toLocaleString()} characters.`,
-      });
+    // Caption length validation per platform
+    if (hasInstagram && newPost.caption.length > 2200) {
+      toast({ variant: "destructive", title: "Caption too long", description: `Caption is ${newPost.caption.length} characters. Instagram allows a maximum of 2,200.` });
+      return;
+    }
+    if (hasLinkedIn && !hasInstagram && newPost.caption.length > 3000) {
+      toast({ variant: "destructive", title: "Caption too long", description: `Caption is ${newPost.caption.length} characters. LinkedIn allows a maximum of 3,000.` });
       return;
     }
 
     // Hashtag limit — Instagram only (30 max)
-    if (selectedPlatform === 'INSTAGRAM' || !newPost.socialMediaAccountId) {
+    if (hasInstagram) {
       const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
       if (hashtagCount > 30) {
-        toast({
-          variant: "destructive",
-          title: "Too many hashtags",
-          description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
-        });
+        toast({ variant: "destructive", title: "Too many hashtags", description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.` });
         return;
       }
     }
@@ -575,6 +581,12 @@ export default function Dashboard() {
         return;
       }
 
+      // Build targetPlatforms from selected accounts
+      const selectedAccounts = accounts.filter(a => newPost.selectedAccountIds.includes(a.id));
+      const targetPlatforms = [...new Set(selectedAccounts.map(a => a.accountType))];
+      // Use the first selected account as the primary account for scheduling/association
+      const primaryAccountId = newPost.selectedAccountIds[0] ?? null;
+
       // Create a copy of the post data to send to the API
       const postData = {
         caption: newPost.caption,
@@ -586,10 +598,10 @@ export default function Dashboard() {
         ...(saveAsDraft ? { status: 'DRAFT' } : {}),
         // Include scheduledFor if it's set
         ...(newPost.scheduledFor ? { scheduledFor: newPost.scheduledFor } : {}),
-        // Only include socialMediaAccountId if it's not empty
-        ...(newPost.socialMediaAccountId && newPost.socialMediaAccountId.trim() !== ''
-          ? { socialMediaAccountId: newPost.socialMediaAccountId }
-          : {})
+        // Primary account (first selected)
+        ...(primaryAccountId ? { socialMediaAccountId: primaryAccountId } : {}),
+        // All targeted platforms
+        targetPlatforms,
       };
 
       // Show a loading toast for creating the post
@@ -636,21 +648,45 @@ export default function Dashboard() {
       }
       
       setPosts([...posts, newPostData]);
+
+      // If multiple accounts selected and not a draft/scheduled, publish to all of them now
+      const capturedAccountIds = newPost.selectedAccountIds.slice();
+      const capturedPostId = newPostData.id;
+      const isScheduled = !!newPost.scheduledFor;
+
       setNewPost({
         caption: "",
         imageUrl: "",
         imageFile: null,
-        socialMediaAccountId: "",
+        selectedAccountIds: [],
         contentType: "IMAGE",
         videoType: "FEED",
         scheduledFor: null
       });
       setIsCreatingPost(false);
-      
-      toast({
-        title: "Success",
-        description: saveAsDraft ? "Post saved to drafts" : "Post created successfully",
-      });
+
+      if (!saveAsDraft && !isScheduled && capturedAccountIds.length > 0) {
+        // Publish immediately to all selected accounts
+        toast({ title: "Publishing...", description: `Publishing to ${capturedAccountIds.length} account(s)...` });
+        try {
+          const pubResponse = await fetch(`/api/content-posts/${capturedPostId}/publish-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountIds: capturedAccountIds }),
+            credentials: 'include',
+          });
+          const pubResult = await pubResponse.json();
+          setPosts(prev => prev.map(p => p.id === capturedPostId ? { ...p, status: 'PUBLISHED' as const } : p));
+          toast({ title: pubResult.success ? "Published" : "Partial publish", description: pubResult.message });
+        } catch {
+          toast({ variant: "destructive", title: "Publish failed", description: "Post was created but could not be published. Use 'Post Now' to try again." });
+        }
+      } else {
+        toast({
+          title: "Success",
+          description: saveAsDraft ? "Post saved to drafts" : isScheduled ? "Post scheduled" : "Post created successfully",
+        });
+      }
     } catch (error) {
       console.error('Error creating post:', error);
       toast({
@@ -667,6 +703,7 @@ export default function Dashboard() {
       caption: content.caption,
       imageUrl: content.imageUrls[0] || "",
       imageFile: null,
+      selectedAccountIds: newPost.selectedAccountIds,
       contentType: content.contentType,
       scheduledFor: null
     });
@@ -1764,7 +1801,7 @@ export default function Dashboard() {
                       <DialogHeader>
                         <DialogTitle>Generate Instagram Content with AI</DialogTitle>
                         <DialogDescription>
-                          Use AI to generate captions and images for your Instagram posts.
+                          Use AI to generate captions and images for your posts.
                         </DialogDescription>
                       </DialogHeader>
                       <div className="py-4">
@@ -1787,9 +1824,9 @@ export default function Dashboard() {
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[525px] max-h-[90vh]">
                       <DialogHeader>
-                        <DialogTitle>Create Instagram Post</DialogTitle>
+                        <DialogTitle>Create Post</DialogTitle>
                         <DialogDescription>
-                          Craft your post content and optionally use AI to enhance it.
+                          Craft your post content and choose which platforms to publish to.
                         </DialogDescription>
                       </DialogHeader>
                       <ScrollArea className="max-h-[60vh] pr-4">
@@ -1853,14 +1890,32 @@ export default function Dashboard() {
                               placeholder="Write your post caption here..."
                               className="min-h-[100px]"
                             />
-                            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                              <span className={newPost.caption.length > 2200 ? 'text-destructive font-medium' : ''}>
-                                {newPost.caption.length}/2,200 characters
-                              </span>
-                              <span className={(newPost.caption.match(/#\w+/g) || []).length > 30 ? 'text-destructive font-medium' : ''}>
-                                {(newPost.caption.match(/#\w+/g) || []).length}/30 hashtags
-                              </span>
-                            </div>
+                            {(() => {
+                              const len = newPost.caption.length;
+                              const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+                              const selectedAccts = accounts.filter(a => newPost.selectedAccountIds.includes(a.id));
+                              const hasInstagram = selectedAccts.some(a => a.accountType === 'INSTAGRAM') || selectedAccts.length === 0;
+                              const hasLinkedIn = selectedAccts.some(a => a.accountType === 'LINKEDIN');
+                              const hasX = selectedAccts.some(a => a.accountType === 'X');
+                              const primaryLimit = hasInstagram ? 2200 : hasLinkedIn ? 3000 : null;
+                              return (
+                                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                                  <span className={primaryLimit !== null && len > primaryLimit ? 'text-destructive font-medium' : ''}>
+                                    {len}{primaryLimit !== null ? `/${primaryLimit.toLocaleString()}` : ''} characters
+                                  </span>
+                                  {hasInstagram && (
+                                    <span className={hashtagCount > 30 ? 'text-destructive font-medium' : ''}>
+                                      {hashtagCount}/30 hashtags
+                                    </span>
+                                  )}
+                                  {hasX && !hasInstagram && (
+                                    <span className={len > 280 ? 'text-amber-600 font-medium' : ''}>
+                                      {len > 280 ? `Thread (${Math.ceil(len / 272)} tweets)` : `${len}/280 chars · X`}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             <Button 
                               variant="outline" 
                               className="mt-2"
@@ -2012,58 +2067,92 @@ export default function Dashboard() {
                               </div>
                             </div>
                           </div>
+                          {/* Multi-platform account selector */}
                           {accounts.length > 0 && (
                             <div className="grid gap-2">
-                              <Label htmlFor="account">Social Media Account</Label>
-                              <select
-                                id="account"
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                value={newPost.socialMediaAccountId}
-                                onChange={(e) => setNewPost({...newPost, socialMediaAccountId: e.target.value})}
-                              >
-                                <option value="">Select an account (optional for draft)</option>
-                                {accounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
-                                  </option>
-                                ))}
-                              </select>
-                              {/* Per-platform character count and warnings */}
-                              {newPost.socialMediaAccountId && (() => {
-                                const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
-                                if (!acct) return null;
-                                const len = newPost.caption.length;
-                                if (acct.accountType === 'X') {
-                                  const tweetCount = len <= 272 ? 1 : Math.ceil(len / 272);
-                                  const isThread = tweetCount > 1;
+                              <Label>Post to accounts <span className="text-muted-foreground font-normal">(optional for draft)</span></Label>
+                              <div className="rounded-md border divide-y">
+                                {accounts.map((account) => {
+                                  const platformLabel = account.accountType === 'INSTAGRAM' ? 'Instagram'
+                                    : account.accountType === 'LINKEDIN' ? 'LinkedIn'
+                                    : account.accountType === 'BLUESKY' ? 'Bluesky'
+                                    : 'X';
+                                  const isChecked = newPost.selectedAccountIds.includes(account.id);
                                   return (
-                                    <div className={`text-xs px-2 py-1 rounded ${isThread ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
-                                      {isThread
-                                        ? `Thread: ~${tweetCount} tweets (caption exceeds 280 chars — will be split automatically)`
-                                        : `${len}/280 characters · X`}
-                                    </div>
+                                    <label
+                                      key={account.id}
+                                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const ids = e.target.checked
+                                            ? [...newPost.selectedAccountIds, account.id]
+                                            : newPost.selectedAccountIds.filter(id => id !== account.id);
+                                          setNewPost({ ...newPost, selectedAccountIds: ids });
+                                        }}
+                                        className="h-4 w-4 rounded border-gray-300"
+                                      />
+                                      <span className="text-sm font-medium">{account.username}</span>
+                                      <span className="text-xs text-muted-foreground ml-auto">{platformLabel}</span>
+                                    </label>
                                   );
-                                }
-                                if (acct.accountType === 'LINKEDIN') {
-                                  const limit = 3000;
-                                  const over = len > limit;
-                                  return (
-                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 2700 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
-                                      {len}/{limit.toLocaleString()} characters · LinkedIn{len > 2700 && !over ? ' (approaching limit)' : ''}
-                                    </div>
-                                  );
-                                }
-                                if (acct.accountType === 'INSTAGRAM') {
-                                  const limit = 2200;
-                                  const over = len > limit;
-                                  return (
-                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 1980 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
-                                      {len}/{limit.toLocaleString()} characters · Instagram{len > 1980 && !over ? ' (approaching limit)' : ''}
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })()}
+                                })}
+                              </div>
+
+                              {/* Per-platform preview for each selected account */}
+                              {newPost.selectedAccountIds.length > 0 && (
+                                <div className="space-y-1.5 mt-1">
+                                  {accounts
+                                    .filter(a => newPost.selectedAccountIds.includes(a.id))
+                                    .map(acct => {
+                                      const len = newPost.caption.length;
+                                      if (acct.accountType === 'X') {
+                                        const tweetCount = len <= 272 ? 1 : Math.ceil(len / 272);
+                                        const isThread = tweetCount > 1;
+                                        return (
+                                          <div key={acct.id} className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${isThread ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-muted text-muted-foreground'}`}>
+                                            <span className="font-medium">X · {acct.username}:</span>
+                                            {isThread
+                                              ? `Thread of ~${tweetCount} tweets (auto-split at 280 chars)`
+                                              : `${len}/280 characters`}
+                                          </div>
+                                        );
+                                      }
+                                      if (acct.accountType === 'LINKEDIN') {
+                                        const limit = 3000;
+                                        const over = len > limit;
+                                        const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+                                        const tooManyTags = hashtagCount > 5;
+                                        return (
+                                          <div key={acct.id} className="space-y-0.5">
+                                            <div className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 2700 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-muted text-muted-foreground'}`}>
+                                              <span className="font-medium">LinkedIn · {acct.username}:</span>
+                                              {len}/{limit.toLocaleString()} characters{len > 2700 && !over ? ' (approaching limit)' : ''}
+                                            </div>
+                                            {tooManyTags && (
+                                              <div className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                                {hashtagCount} hashtags — LinkedIn recommends 3–5 for best reach
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      }
+                                      if (acct.accountType === 'INSTAGRAM') {
+                                        const limit = 2200;
+                                        const over = len > limit;
+                                        return (
+                                          <div key={acct.id} className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 1980 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-muted text-muted-foreground'}`}>
+                                            <span className="font-medium">Instagram · {acct.username}:</span>
+                                            {len}/{limit.toLocaleString()} characters{len > 1980 && !over ? ' (approaching limit)' : ''}
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })}
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -2075,7 +2164,7 @@ export default function Dashboard() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => {
-                                    const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                    const acct = accounts.find(a => a.id === newPost.selectedAccountIds[0]);
                                     lintCaption(newPost.caption, acct?.accountType || 'INSTAGRAM');
                                   }}
                                   disabled={isLintingCaption}
@@ -2109,7 +2198,7 @@ export default function Dashboard() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                  const acct = accounts.find(a => a.id === newPost.selectedAccountIds[0]);
                                   loadBestTime(acct?.accountType, acct?.id);
                                 }}
                                 disabled={isLoadingBestTime}
@@ -2277,159 +2366,19 @@ export default function Dashboard() {
                         
                         {post.status === 'DRAFT' && (
                           <div className="flex gap-2 w-full mt-2">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button className="flex-1" size="sm">
-                                  Post Now
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Post to Social Media</DialogTitle>
-                                  <DialogDescription>
-                                    Select a social media account to post this content to.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <div className="py-4">
-                                  {accounts.length > 0 ? (
-                                    <div className="grid gap-4">
-                                      <div className="grid gap-2">
-                                        <Label htmlFor="post-account">Social Media Account</Label>
-                                        <select
-                                          id="post-account"
-                                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                          defaultValue={post.socialMediaAccountId || ""}
-                                        >
-                                          <option value="" disabled>Select an account</option>
-                                          {accounts.map((account) => (
-                                            <option key={account.id} value={account.id}>
-                                              {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                               account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div className="mt-2">
-                                        <div className="rounded-md bg-muted p-4">
-                                          <div className="font-medium">Post Preview</div>
-                                          {post.imageUrl && (
-                                            <div className="mt-2 aspect-square relative rounded-md overflow-hidden border max-w-[200px]">
-                                              <img 
-                                                src={post.imageUrl} 
-                                                alt="Post preview" 
-                                                className="object-cover w-full h-full"
-                                              />
-                                            </div>
-                                          )}
-                                          <p className="mt-2 text-sm">{post.caption}</p>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="text-center py-4">
-                                      <p className="text-muted-foreground">You need to add a social media account first.</p>
-                                      <Button 
-                                        variant="outline" 
-                                        className="mt-2"
-                                        onClick={() => {
-                                          setIsAddingAccount(true);
-                                        }}
-                                      >
-                                        Add Social Media Account
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                                <DialogFooter>
-                                  <Button 
-                                    variant="outline" 
-                                    onClick={(e) => {
-                                      const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
-                                      if (dialogContent) {
-                                        const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
-                                        if (closeButton) {
-                                          (closeButton as HTMLButtonElement).click();
-                                        }
-                                      }
-                                    }}
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    onClick={async (e) => {
-                                      const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
-                                      if (!dialogContent) return;
-                                      
-                                      const select = dialogContent.querySelector('select#post-account') as HTMLSelectElement;
-                                      const accountId = select?.value;
-                                      
-                                      if (!accountId) {
-                                        toast({
-                                          variant: "destructive",
-                                          title: "Error",
-                                          description: "Please select a social media account",
-                                        });
-                                        return;
-                                      }
-                                      
-                                      try {
-                                        const response = await fetch(`/api/social-media-accounts/${accountId}/post`, {
-                                          method: 'POST',
-                                          headers: {
-                                            'Content-Type': 'application/json',
-                                          },
-                                          body: JSON.stringify({
-                                            postId: post.id,
-                                          }),
-                                          credentials: 'include',
-                                        });
-                                        
-                                        if (!response.ok) {
-                                          const errorData = await response.json();
-                                          throw new Error(errorData.error || errorData.details || 'Failed to post to social media');
-                                        }
-                                        
-                                        const result = await response.json();
-
-                                        // Update the post in the local state
-                                        setPosts(posts.map(p =>
-                                          p.id === post.id
-                                            ? {...p, status: 'PUBLISHED' as const, socialMediaAccountId: accountId, igMediaId: result.postResult?.mediaId || null}
-                                            : p
-                                        ));
-
-                                        toast({
-                                          title: "Posted Successfully",
-                                          description: result.message || "Content posted successfully",
-                                        });
-
-                                        // Close the dialog
-                                        const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
-                                        if (closeButton) {
-                                          (closeButton as HTMLButtonElement).click();
-                                        }
-                                      } catch (error) {
-                                        console.error('Error posting to social media:', error);
-                                        toast({
-                                          variant: "destructive",
-                                          title: "Posting Failed",
-                                          description: error instanceof Error ? error.message : "Failed to post to social media",
-                                        });
-
-                                        // Update the post status to FAILED in the local state
-                                        setPosts(posts.map(p =>
-                                          p.id === post.id
-                                            ? {...p, status: 'FAILED' as const}
-                                            : p
-                                        ));
-                                      }
-                                    }}
-                                  >
-                                    Post to Social Media
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
+                            <Button
+                              className="flex-1"
+                              size="sm"
+                              onClick={() => {
+                                setPublishingPostId(post.id);
+                                setPublishDialogAccountIds(post.targetPlatforms?.length
+                                  ? accounts.filter(a => post.targetPlatforms.includes(a.accountType)).map(a => a.id)
+                                  : []);
+                                setIsPublishDialogOpen(true);
+                              }}
+                            >
+                              Post Now
+                            </Button>
                             <Button
                               variant="outline"
                               className="flex-1"
@@ -2456,7 +2405,7 @@ export default function Dashboard() {
                   <CardHeader>
                     <CardTitle>No Content Posts</CardTitle>
                     <CardDescription>
-                      Create your first Instagram post to get started.
+                      Create your first post to get started.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -2528,8 +2477,9 @@ export default function Dashboard() {
                                   caption: post.caption,
                                   imageUrl: post.imageUrl || "",
                                   imageFile: null,
-                                  socialMediaAccountId: post.socialMediaAccountId || "",
+                                  selectedAccountIds: post.socialMediaAccountId ? [post.socialMediaAccountId] : [],
                                   contentType: post.contentType,
+                                  videoType: (post.videoType as "FEED" | "REELS") || "FEED",
                                   scheduledFor: post.scheduledFor || null
                                 });
                                 setIsCreatingPost(true);
@@ -2567,162 +2517,22 @@ export default function Dashboard() {
                             </div>
                             
                             <div className="flex gap-2 w-full mt-2">
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button className="flex-1" size="sm">
-                                    Post Now
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                  <DialogHeader>
-                                    <DialogTitle>Post to Social Media</DialogTitle>
-                                    <DialogDescription>
-                                      Select a social media account to post this content to.
-                                    </DialogDescription>
-                                  </DialogHeader>
-                                  <div className="py-4">
-                                    {accounts.length > 0 ? (
-                                      <div className="grid gap-4">
-                                        <div className="grid gap-2">
-                                          <Label htmlFor="post-account">Social Media Account</Label>
-                                          <select
-                                            id="post-account"
-                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            defaultValue={post.socialMediaAccountId || ""}
-                                          >
-                                            <option value="" disabled>Select an account</option>
-                                            {accounts.map((account) => (
-                                              <option key={account.id} value={account.id}>
-                                                {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : 
-                                                 account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                        <div className="mt-2">
-                                          <div className="rounded-md bg-muted p-4">
-                                            <div className="font-medium">Post Preview</div>
-                                            {post.imageUrl && (
-                                              <div className="mt-2 aspect-square relative rounded-md overflow-hidden border max-w-[200px]">
-                                                <img 
-                                                  src={post.imageUrl} 
-                                                  alt="Post preview" 
-                                                  className="object-cover w-full h-full"
-                                                />
-                                              </div>
-                                            )}
-                                            <p className="mt-2 text-sm">{post.caption}</p>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="text-center py-4">
-                                        <p className="text-muted-foreground">You need to add a social media account first.</p>
-                                        <Button 
-                                          variant="outline" 
-                                          className="mt-2"
-                                          onClick={() => {
-                                            setIsAddingAccount(true);
-                                          }}
-                                        >
-                                          Add Social Media Account
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <DialogFooter>
-                                    <Button 
-                                      variant="outline" 
-                                      onClick={(e) => {
-                                        const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
-                                        if (dialogContent) {
-                                          const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
-                                          if (closeButton) {
-                                            (closeButton as HTMLButtonElement).click();
-                                          }
-                                        }
-                                      }}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button
-                                      onClick={async (e) => {
-                                        const dialogContent = (e.target as HTMLElement).closest('div[role="dialog"]');
-                                        if (!dialogContent) return;
-                                        
-                                        const select = dialogContent.querySelector('select#post-account') as HTMLSelectElement;
-                                        const accountId = select?.value;
-                                        
-                                        if (!accountId) {
-                                          toast({
-                                            variant: "destructive",
-                                            title: "Error",
-                                            description: "Please select a social media account",
-                                          });
-                                          return;
-                                        }
-                                        
-                                        try {
-                                          const response = await fetch(`/api/social-media-accounts/${accountId}/post`, {
-                                            method: 'POST',
-                                            headers: {
-                                              'Content-Type': 'application/json',
-                                            },
-                                            body: JSON.stringify({
-                                              postId: post.id,
-                                            }),
-                                            credentials: 'include',
-                                          });
-                                          
-                                          if (!response.ok) {
-                                            const errorData = await response.json();
-                                            throw new Error(errorData.error || errorData.details || 'Failed to post to social media');
-                                          }
-                                          
-                                          const result = await response.json();
-
-                                          // Update the post in the local state
-                                          setPosts(posts.map(p =>
-                                            p.id === post.id
-                                              ? {...p, status: 'PUBLISHED' as const, socialMediaAccountId: accountId, igMediaId: result.postResult?.mediaId || null}
-                                              : p
-                                          ));
-
-                                          toast({
-                                            title: "Posted Successfully",
-                                            description: result.message || "Content posted successfully",
-                                          });
-
-                                          // Close the dialog
-                                          const closeButton = dialogContent.querySelector('button[aria-label="Close"]');
-                                          if (closeButton) {
-                                            (closeButton as HTMLButtonElement).click();
-                                          }
-                                        } catch (error) {
-                                          console.error('Error posting to social media:', error);
-                                          toast({
-                                            variant: "destructive",
-                                            title: "Posting Failed",
-                                            description: error instanceof Error ? error.message : "Failed to post to social media",
-                                          });
-
-                                          // Update the post status to FAILED in the local state
-                                          setPosts(posts.map(p =>
-                                            p.id === post.id
-                                              ? {...p, status: 'FAILED' as const}
-                                              : p
-                                          ));
-                                        }
-                                      }}
-                                    >
-                                      Post to Social Media
-                                    </Button>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
-                              <Button 
-                                variant="outline" 
-                                className="flex-1" 
+                              <Button
+                                className="flex-1"
+                                size="sm"
+                                onClick={() => {
+                                  setPublishingPostId(post.id);
+                                  setPublishDialogAccountIds(post.targetPlatforms?.length
+                                    ? accounts.filter(a => post.targetPlatforms.includes(a.accountType)).map(a => a.id)
+                                    : []);
+                                  setIsPublishDialogOpen(true);
+                                }}
+                              >
+                                Post Now
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="flex-1"
                                 size="sm"
                                 onClick={() => {
                                   setSchedulingPostId(post.id);
@@ -4812,6 +4622,107 @@ export default function Dashboard() {
         </main>
 
         {/* Schedule Post Dialog */}
+        {/* Global multi-platform publish dialog */}
+        <Dialog open={isPublishDialogOpen} onOpenChange={(open) => { setIsPublishDialogOpen(open); if (!open) setPublishingPostId(null); }}>
+          <DialogContent className="sm:max-w-[460px]">
+            <DialogHeader>
+              <DialogTitle>Post to Social Media</DialogTitle>
+              <DialogDescription>
+                Select one or more accounts to publish this post to right now.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              {accounts.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="rounded-md border divide-y">
+                    {accounts.map((account) => {
+                      const platformLabel = account.accountType === 'INSTAGRAM' ? 'Instagram'
+                        : account.accountType === 'LINKEDIN' ? 'LinkedIn'
+                        : account.accountType === 'BLUESKY' ? 'Bluesky'
+                        : 'X';
+                      const isChecked = publishDialogAccountIds.includes(account.id);
+                      return (
+                        <label
+                          key={account.id}
+                          className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              setPublishDialogAccountIds(e.target.checked
+                                ? [...publishDialogAccountIds, account.id]
+                                : publishDialogAccountIds.filter(id => id !== account.id));
+                            }}
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                          <span className="text-sm font-medium">{account.username}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">{platformLabel}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {publishingPostId && (() => {
+                    const post = posts.find(p => p.id === publishingPostId);
+                    if (!post) return null;
+                    return (
+                      <div className="rounded-md bg-muted p-3">
+                        <div className="text-xs font-medium text-muted-foreground mb-1">Post preview</div>
+                        {post.imageUrl && (
+                          <div className="aspect-square relative rounded-md overflow-hidden border max-w-[120px] mb-2">
+                            <img src={post.imageUrl} alt="Post preview" className="object-cover w-full h-full" />
+                          </div>
+                        )}
+                        <p className="text-sm line-clamp-3">{post.caption}</p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-muted-foreground">You need to add a social media account first.</p>
+                  <Button variant="outline" className="mt-2" onClick={() => { setIsPublishDialogOpen(false); setIsAddingAccount(true); }}>
+                    Add Social Media Account
+                  </Button>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsPublishDialogOpen(false)}>Cancel</Button>
+              <Button
+                disabled={publishDialogAccountIds.length === 0 || isPublishing}
+                onClick={async () => {
+                  if (!publishingPostId || publishDialogAccountIds.length === 0) return;
+                  setIsPublishing(true);
+                  try {
+                    const response = await fetch(`/api/content-posts/${publishingPostId}/publish-all`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ accountIds: publishDialogAccountIds }),
+                      credentials: 'include',
+                    });
+                    const result = await response.json();
+                    if (response.ok || response.status === 207) {
+                      setPosts(posts.map(p => p.id === publishingPostId ? { ...p, status: 'PUBLISHED' as const } : p));
+                      toast({ title: result.success ? "Published" : "Partial publish", description: result.message });
+                      setIsPublishDialogOpen(false);
+                    } else {
+                      throw new Error(result.error || 'Publish failed');
+                    }
+                  } catch (error) {
+                    toast({ variant: "destructive", title: "Publish failed", description: error instanceof Error ? error.message : "Failed to publish" });
+                    setPosts(posts.map(p => p.id === publishingPostId ? { ...p, status: 'FAILED' as const } : p));
+                  } finally {
+                    setIsPublishing(false);
+                  }
+                }}
+              >
+                {isPublishing ? <><RefreshCw className="h-4 w-4 animate-spin mr-1" />Publishing...</> : `Publish to ${publishDialogAccountIds.length} account(s)`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={isScheduling} onOpenChange={setIsScheduling}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>

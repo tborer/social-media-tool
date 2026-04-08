@@ -104,8 +104,8 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       });
     }
     
-    const { caption, imageUrl, socialMediaAccountId, contentType, videoType, status } = req.body;
-    
+    const { caption, imageUrl, socialMediaAccountId, contentType, videoType, status, targetPlatforms } = req.body;
+
     // Update log with request details
     await prisma.log.update({
       where: { id: logEntry.id },
@@ -116,11 +116,12 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
           imageUrlLength: imageUrl ? imageUrl.length : 0,
           socialMediaAccountId,
           contentType,
-          status
+          status,
+          targetPlatforms,
         }
       }
     });
-    
+
     if (!caption) {
       const errorMsg = 'Caption is required';
       logger.error(`Error creating content post: ${errorMsg}`, { userId });
@@ -137,19 +138,37 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       return res.status(400).json({ error: errorMsg });
     }
 
-    // Instagram caption length validation
-    if (caption.length > 2200) {
-      const errorMsg = `Caption is too long (${caption.length} characters). Maximum is 2,200.`;
+    // Platform-aware caption length validation
+    // Determine platform from selected account or targetPlatforms
+    const platforms: string[] = Array.isArray(targetPlatforms) && targetPlatforms.length > 0
+      ? targetPlatforms
+      : ['INSTAGRAM'];
+    const isLinkedInOnly = platforms.every(p => p === 'LINKEDIN');
+    const isXOnly = platforms.every(p => p === 'X');
+    const hasInstagram = platforms.includes('INSTAGRAM');
+
+    // Only enforce Instagram's 2,200 char limit when Instagram is included and there's no LinkedIn-only post
+    if (hasInstagram && caption.length > 2200) {
+      const errorMsg = `Caption is too long (${caption.length} characters). Instagram allows a maximum of 2,200.`;
       await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
       return res.status(400).json({ error: errorMsg });
     }
 
-    // Instagram hashtag limit validation
-    const hashtagCount = (caption.match(/#\w+/g) || []).length;
-    if (hashtagCount > 30) {
-      const errorMsg = `Too many hashtags (${hashtagCount}). Maximum is 30.`;
+    // LinkedIn limit: 3,000 chars
+    if (isLinkedInOnly && caption.length > 3000) {
+      const errorMsg = `Caption is too long (${caption.length} characters). LinkedIn allows a maximum of 3,000.`;
       await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
       return res.status(400).json({ error: errorMsg });
+    }
+
+    // Instagram hashtag limit (30 max) — only enforced when Instagram is targeted
+    if (hasInstagram) {
+      const hashtagCount = (caption.match(/#\w+/g) || []).length;
+      if (hashtagCount > 30) {
+        const errorMsg = `Too many hashtags (${hashtagCount}). Instagram allows a maximum of 30.`;
+        await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
+        return res.status(400).json({ error: errorMsg });
+      }
     }
     
     // Log the size of the caption and imageUrl for debugging
@@ -222,6 +241,8 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       userId,
       // Respect explicitly provided status, otherwise default based on scheduledFor
       status: status !== undefined ? status : (scheduledFor ? 'SCHEDULED' : 'DRAFT'),
+      // Store which platforms this post targets
+      targetPlatforms: Array.isArray(targetPlatforms) ? targetPlatforms : [],
     };
     
     // Add contentType if provided
