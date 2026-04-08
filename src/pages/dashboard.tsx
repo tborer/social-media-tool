@@ -176,7 +176,8 @@ export default function Dashboard() {
     caption: "",
     imageUrl: "",
     imageFile: null as File | null,
-    socialMediaAccountId: "",
+    targetAccountIds: [] as string[],
+    xOverrideText: "",
     contentType: "IMAGE",
     videoType: "FEED" as "FEED" | "REELS",
     scheduledFor: null as string | null
@@ -384,30 +385,36 @@ export default function Dashboard() {
       return;
     }
 
-    // Determine platform-specific caption limit based on selected account
-    const selectedAccount = accounts.find(a => a.id === newPost.socialMediaAccountId);
-    const selectedPlatform = selectedAccount?.accountType ?? 'INSTAGRAM';
-    const captionLimit = selectedPlatform === 'LINKEDIN' ? 3000 : selectedPlatform === 'X' ? null : 2200;
-    const platformName = selectedPlatform === 'LINKEDIN' ? 'LinkedIn' : selectedPlatform === 'X' ? 'X' : 'Instagram';
+    // Per-platform validation across all selected accounts
+    const selectedAccounts = accounts.filter(a => newPost.targetAccountIds.includes(a.id));
 
-    if (captionLimit !== null && newPost.caption.length > captionLimit) {
-      toast({
-        variant: "destructive",
-        title: "Caption too long",
-        description: `Caption is ${newPost.caption.length} characters. ${platformName} allows a maximum of ${captionLimit.toLocaleString()} characters.`,
-      });
-      return;
+    for (const acct of selectedAccounts) {
+      if (acct.accountType === 'INSTAGRAM') {
+        if (newPost.caption.length > 2200) {
+          toast({ variant: "destructive", title: "Caption too long", description: `Instagram allows a maximum of 2,200 characters (currently ${newPost.caption.length}).` });
+          return;
+        }
+        const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
+        if (hashtagCount > 30) {
+          toast({ variant: "destructive", title: "Too many hashtags", description: `Instagram allows a maximum of 30 hashtags (you have ${hashtagCount}).` });
+          return;
+        }
+      }
+      if (acct.accountType === 'LINKEDIN' && newPost.caption.length > 3000) {
+        toast({ variant: "destructive", title: "Caption too long", description: `LinkedIn allows a maximum of 3,000 characters (currently ${newPost.caption.length}).` });
+        return;
+      }
+      if (acct.accountType === 'X' && newPost.xOverrideText && newPost.xOverrideText.length > 280) {
+        toast({ variant: "destructive", title: "X tweet text too long", description: `The X override text is ${newPost.xOverrideText.length} characters. Max is 280 (will auto-split if you leave it blank and use the main caption).` });
+        return;
+      }
     }
 
-    // Hashtag limit — Instagram only (30 max)
-    if (selectedPlatform === 'INSTAGRAM' || !newPost.socialMediaAccountId) {
+    // If no account selected (pure draft), still enforce Instagram hashtag norms as a soft note
+    if (selectedAccounts.length === 0) {
       const hashtagCount = (newPost.caption.match(/#\w+/g) || []).length;
       if (hashtagCount > 30) {
-        toast({
-          variant: "destructive",
-          title: "Too many hashtags",
-          description: `Your caption has ${hashtagCount} hashtags. Instagram allows a maximum of 30.`,
-        });
+        toast({ variant: "destructive", title: "Too many hashtags", description: `Instagram allows a maximum of 30 hashtags (you have ${hashtagCount}). This draft may fail when posted to Instagram.` });
         return;
       }
     }
@@ -575,81 +582,99 @@ export default function Dashboard() {
         return;
       }
 
-      // Create a copy of the post data to send to the API
-      const postData = {
+      // Base post data shared across all platforms
+      const basePostData = {
         caption: newPost.caption,
         imageUrl: imageUrl,
         contentType: newPost.contentType,
-        // Include videoType if it's a video
         ...(newPost.contentType === 'VIDEO' ? { videoType: newPost.videoType } : {}),
-        // Set status to DRAFT if saveAsDraft is true
         ...(saveAsDraft ? { status: 'DRAFT' } : {}),
-        // Include scheduledFor if it's set
         ...(newPost.scheduledFor ? { scheduledFor: newPost.scheduledFor } : {}),
-        // Only include socialMediaAccountId if it's not empty
-        ...(newPost.socialMediaAccountId && newPost.socialMediaAccountId.trim() !== ''
-          ? { socialMediaAccountId: newPost.socialMediaAccountId }
-          : {})
       };
 
-      // Show a loading toast for creating the post
+      const targetAccounts = accounts.filter(a => newPost.targetAccountIds.includes(a.id));
+
       toast({
         title: saveAsDraft ? "Saving draft..." : "Creating post...",
-        description: "Please wait...",
+        description: targetAccounts.length > 1
+          ? `Creating ${targetAccounts.length} posts across platforms…`
+          : "Please wait...",
       });
 
-      const response = await fetch('/api/content-posts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(postData),
-        credentials: 'include',
-      });
-      
-      let errorMessage = 'Failed to create post';
-      
-      // Handle different error responses
-      if (!response.ok) {
-        // Try to parse the error response as JSON
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (jsonError) {
-          // If we can't parse the JSON, use the status text and code
-          if (response.status === 413) {
-            errorMessage = 'The post content is too large. Try using a shorter image URL or reducing the caption length.';
-          } else {
-            errorMessage = `${response.statusText || 'Error'} (${response.status})`;
+      // Helper to POST one content-post record
+      const createOnePost = async (accountId: string | null, captionOverride?: string) => {
+        const body = {
+          ...basePostData,
+          ...(captionOverride ? { caption: captionOverride } : {}),
+          ...(accountId ? { socialMediaAccountId: accountId } : {}),
+        };
+        const response = await fetch('/api/content-posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          let errMsg = 'Failed to create post';
+          try {
+            const errData = await response.json();
+            errMsg = errData.error || errMsg;
+          } catch {
+            errMsg = response.status === 413
+              ? 'Post content is too large. Try a shorter image URL or caption.'
+              : `${response.statusText || 'Error'} (${response.status})`;
           }
-          console.error('Error parsing API response:', jsonError);
+          throw new Error(errMsg);
         }
-        throw new Error(errorMessage);
+        return response.json();
+      };
+
+      let createdPosts: any[];
+
+      if (targetAccounts.length === 0) {
+        // No account selected — create a single draft
+        const result = await createOnePost(null);
+        createdPosts = [result];
+      } else {
+        // Create one post per selected account (in parallel)
+        createdPosts = await Promise.all(
+          targetAccounts.map(acct => {
+            // X accounts use xOverrideText if provided, otherwise the shared caption
+            const captionOverride =
+              acct.accountType === 'X' && newPost.xOverrideText.trim()
+                ? newPost.xOverrideText.trim()
+                : undefined;
+            return createOnePost(acct.id, captionOverride);
+          })
+        );
       }
-      
-      let newPostData;
-      try {
-        newPostData = await response.json();
-      } catch (jsonError) {
-        console.error('Error parsing post creation response:', jsonError);
-        throw new Error('Server returned an invalid response. Your post might have been created but could not be displayed.');
-      }
-      
-      setPosts([...posts, newPostData]);
+
+      setPosts(prev => [...createdPosts, ...prev]);
       setNewPost({
         caption: "",
         imageUrl: "",
         imageFile: null,
-        socialMediaAccountId: "",
+        targetAccountIds: [],
+        xOverrideText: "",
         contentType: "IMAGE",
         videoType: "FEED",
         scheduledFor: null
       });
       setIsCreatingPost(false);
-      
+
+      const platformNames = targetAccounts.map(a =>
+        a.accountType === 'INSTAGRAM' ? 'Instagram' :
+        a.accountType === 'LINKEDIN'  ? 'LinkedIn'  :
+        a.accountType === 'X'         ? 'X'         : a.accountType
+      ).join(', ');
+
       toast({
         title: "Success",
-        description: saveAsDraft ? "Post saved to drafts" : "Post created successfully",
+        description: saveAsDraft
+          ? `Draft saved${platformNames ? ` for ${platformNames}` : ''}`
+          : createdPosts.length > 1
+            ? `${createdPosts.length} posts created for ${platformNames}`
+            : "Post created successfully",
       });
     } catch (error) {
       console.error('Error creating post:', error);
@@ -1747,9 +1772,9 @@ export default function Dashboard() {
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[525px] max-h-[90vh]">
                       <DialogHeader>
-                        <DialogTitle>Create Instagram Post</DialogTitle>
+                        <DialogTitle>Create Post</DialogTitle>
                         <DialogDescription>
-                          Craft your post content and optionally use AI to enhance it.
+                          Craft your post and publish to one or more connected platforms.
                         </DialogDescription>
                       </DialogHeader>
                       <ScrollArea className="max-h-[60vh] pr-4">
@@ -1778,31 +1803,40 @@ export default function Dashboard() {
                           </div>
 
                           {/* Video Type Selection - Only show when VIDEO is selected */}
-                          {newPost.contentType === 'VIDEO' && (
-                            <div className="grid gap-2">
-                              <Label htmlFor="video-type">Video Type</Label>
-                              <RadioGroup
-                                value={newPost.videoType}
-                                onValueChange={(value) => setNewPost({...newPost, videoType: value as "FEED" | "REELS"})}
-                                className="flex flex-wrap gap-4"
-                              >
-                                <div className="flex items-center space-x-2">
-                                  <RadioGroupItem value="FEED" id="video-feed-type" />
-                                  <Label htmlFor="video-feed-type" className="cursor-pointer">
-                                    Feed Video
-                                    <span className="text-xs text-muted-foreground block">Square/landscape, up to 60 min</span>
-                                  </Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <RadioGroupItem value="REELS" id="video-reels-type" />
-                                  <Label htmlFor="video-reels-type" className="cursor-pointer">
-                                    Reels
-                                    <span className="text-xs text-muted-foreground block">Vertical (9:16), 3-90 seconds</span>
-                                  </Label>
-                                </div>
-                              </RadioGroup>
-                            </div>
-                          )}
+                          {newPost.contentType === 'VIDEO' && (() => {
+                            const hasInstagram = newPost.targetAccountIds.some(id => accounts.find(a => a.id === id)?.accountType === 'INSTAGRAM');
+                            return (
+                              <div className="grid gap-2">
+                                <Label htmlFor="video-type">Video Type</Label>
+                                <RadioGroup
+                                  value={newPost.videoType}
+                                  onValueChange={(value) => setNewPost({...newPost, videoType: value as "FEED" | "REELS"})}
+                                  className="flex flex-wrap gap-4"
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="FEED" id="video-feed-type" />
+                                    <Label htmlFor="video-feed-type" className="cursor-pointer">
+                                      Feed Video
+                                      <span className="text-xs text-muted-foreground block">Square/landscape, up to 60 min</span>
+                                    </Label>
+                                  </div>
+                                  {/* Reels is Instagram-only */}
+                                  {(hasInstagram || newPost.targetAccountIds.length === 0) && (
+                                    <div className="flex items-center space-x-2">
+                                      <RadioGroupItem value="REELS" id="video-reels-type" />
+                                      <Label htmlFor="video-reels-type" className="cursor-pointer">
+                                        Reels
+                                        <span className="text-xs text-muted-foreground block">Vertical (9:16), 3-90 seconds · Instagram only</span>
+                                      </Label>
+                                    </div>
+                                  )}
+                                </RadioGroup>
+                                {!hasInstagram && newPost.targetAccountIds.length > 0 && newPost.videoType === 'REELS' && (
+                                  <p className="text-xs text-amber-600">Reels is Instagram-only. Add an Instagram account or switch to Feed Video.</p>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           <div className="grid gap-2">
                             <Label htmlFor="caption">Caption</Label>
@@ -1814,11 +1848,11 @@ export default function Dashboard() {
                               className="min-h-[100px]"
                             />
                             <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                              <span className={newPost.caption.length > 2200 ? 'text-destructive font-medium' : ''}>
-                                {newPost.caption.length}/2,200 characters
+                              <span className={newPost.caption.length > 3000 ? 'text-destructive font-medium' : ''}>
+                                {newPost.caption.length} characters
                               </span>
                               <span className={(newPost.caption.match(/#\w+/g) || []).length > 30 ? 'text-destructive font-medium' : ''}>
-                                {(newPost.caption.match(/#\w+/g) || []).length}/30 hashtags
+                                {(newPost.caption.match(/#\w+/g) || []).length} hashtags
                               </span>
                             </div>
                             <Button 
@@ -1972,58 +2006,145 @@ export default function Dashboard() {
                               </div>
                             </div>
                           </div>
+                          {/* Platform / Account selector — multi-select toggle cards */}
                           {accounts.length > 0 && (
                             <div className="grid gap-2">
-                              <Label htmlFor="account">Social Media Account</Label>
-                              <select
-                                id="account"
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                value={newPost.socialMediaAccountId}
-                                onChange={(e) => setNewPost({...newPost, socialMediaAccountId: e.target.value})}
-                              >
-                                <option value="">Select an account (optional for draft)</option>
-                                {accounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" : account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
-                                  </option>
-                                ))}
-                              </select>
-                              {/* Per-platform character count and warnings */}
-                              {newPost.socialMediaAccountId && (() => {
-                                const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
-                                if (!acct) return null;
-                                const len = newPost.caption.length;
-                                if (acct.accountType === 'X') {
-                                  const tweetCount = len <= 272 ? 1 : Math.ceil(len / 272);
-                                  const isThread = tweetCount > 1;
+                              <div className="flex items-center justify-between">
+                                <Label>Post to</Label>
+                                {newPost.targetAccountIds.length > 0 && (
+                                  <button
+                                    type="button"
+                                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                                    onClick={() => setNewPost({ ...newPost, targetAccountIds: [] })}
+                                  >
+                                    Clear all
+                                  </button>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground -mt-1">
+                                Select one or more accounts. Leave blank to save as a draft without a platform.
+                              </p>
+                              <div className="flex flex-col gap-1.5">
+                                {accounts.map((account) => {
+                                  const isSelected = newPost.targetAccountIds.includes(account.id);
+                                  const platformLabel =
+                                    account.accountType === 'INSTAGRAM' ? 'Instagram' :
+                                    account.accountType === 'LINKEDIN'  ? 'LinkedIn'  :
+                                    account.accountType === 'X'         ? 'X'         : 'Bluesky';
+                                  const platformIcon =
+                                    account.accountType === 'INSTAGRAM'
+                                      ? <Instagram className="h-4 w-4 text-pink-500 shrink-0" />
+                                      : account.accountType === 'LINKEDIN'
+                                        ? <svg className="h-4 w-4 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                                        : account.accountType === 'X'
+                                          ? <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                                          : <svg className="h-4 w-4 text-blue-400 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2z"/></svg>;
+
                                   return (
-                                    <div className={`text-xs px-2 py-1 rounded ${isThread ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
-                                      {isThread
-                                        ? `Thread: ~${tweetCount} tweets (caption exceeds 280 chars — will be split automatically)`
-                                        : `${len}/280 characters · X`}
-                                    </div>
+                                    <button
+                                      key={account.id}
+                                      type="button"
+                                      onClick={() => {
+                                        const ids = isSelected
+                                          ? newPost.targetAccountIds.filter(id => id !== account.id)
+                                          : [...newPost.targetAccountIds, account.id];
+                                        setNewPost({ ...newPost, targetAccountIds: ids });
+                                      }}
+                                      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left text-sm transition-colors w-full ${
+                                        isSelected
+                                          ? 'border-primary bg-primary/5 font-medium'
+                                          : 'border-border bg-background hover:bg-muted/50'
+                                      }`}
+                                    >
+                                      {platformIcon}
+                                      <span className="flex-1 truncate">{account.username}</span>
+                                      <span className="text-xs text-muted-foreground shrink-0">{platformLabel}</span>
+                                      {isSelected && (
+                                        <span className="text-primary shrink-0 text-xs font-bold">✓</span>
+                                      )}
+                                    </button>
                                   );
-                                }
-                                if (acct.accountType === 'LINKEDIN') {
-                                  const limit = 3000;
-                                  const over = len > limit;
-                                  return (
-                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 2700 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
-                                      {len}/{limit.toLocaleString()} characters · LinkedIn{len > 2700 && !over ? ' (approaching limit)' : ''}
-                                    </div>
-                                  );
-                                }
-                                if (acct.accountType === 'INSTAGRAM') {
-                                  const limit = 2200;
-                                  const over = len > limit;
-                                  return (
-                                    <div className={`text-xs px-2 py-1 rounded ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 1980 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground'}`}>
-                                      {len}/{limit.toLocaleString()} characters · Instagram{len > 1980 && !over ? ' (approaching limit)' : ''}
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })()}
+                                })}
+                              </div>
+
+                              {/* Per-platform character count for each selected account */}
+                              {newPost.targetAccountIds.length > 0 && (
+                                <div className="space-y-1 mt-1">
+                                  {accounts
+                                    .filter(a => newPost.targetAccountIds.includes(a.id))
+                                    .map(acct => {
+                                      const len = newPost.caption.length;
+                                      if (acct.accountType === 'X') {
+                                        const effectiveLen = newPost.xOverrideText.trim()
+                                          ? newPost.xOverrideText.length
+                                          : len;
+                                        const tweetCount = effectiveLen <= 272 ? 1 : Math.ceil(effectiveLen / 272);
+                                        const isThread = tweetCount > 1;
+                                        return (
+                                          <div key={acct.id} className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${isThread ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground bg-muted/40'}`}>
+                                            <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                                            {isThread
+                                              ? `Thread: ~${tweetCount} tweets (exceeds 280 chars — auto-split)`
+                                              : `${effectiveLen}/280 chars${newPost.xOverrideText.trim() ? ' (using X override)' : ''}`}
+                                          </div>
+                                        );
+                                      }
+                                      if (acct.accountType === 'LINKEDIN') {
+                                        const limit = 3000;
+                                        const over = len > limit;
+                                        return (
+                                          <div key={acct.id} className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${over ? 'bg-red-50 text-red-700 border border-red-200' : len > 2700 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground bg-muted/40'}`}>
+                                            <svg className="h-3 w-3 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                                            LinkedIn: {len.toLocaleString()}/{limit.toLocaleString()} chars{over ? ' — over limit!' : len > 2700 ? ' (approaching limit)' : ''}
+                                          </div>
+                                        );
+                                      }
+                                      if (acct.accountType === 'INSTAGRAM') {
+                                        const limit = 2200;
+                                        const over = len > limit;
+                                        const hashCount = (newPost.caption.match(/#\w+/g) || []).length;
+                                        return (
+                                          <div key={acct.id} className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${over || hashCount > 30 ? 'bg-red-50 text-red-700 border border-red-200' : len > 1980 || hashCount > 25 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'text-muted-foreground bg-muted/40'}`}>
+                                            <Instagram className="h-3 w-3 text-pink-500 shrink-0" />
+                                            Instagram: {len.toLocaleString()}/{limit.toLocaleString()} chars · {hashCount}/30 hashtags{over ? ' — over limit!' : len > 1980 ? ' (approaching limit)' : ''}
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* X tweet text override — shown only when an X account is selected */}
+                          {newPost.targetAccountIds.some(id => accounts.find(a => a.id === id)?.accountType === 'X') && (
+                            <div className="grid gap-2">
+                              <Label htmlFor="xOverrideText">
+                                X Tweet Text
+                                <span className="text-xs font-normal text-muted-foreground ml-1.5">(optional — leave blank to auto-use caption)</span>
+                              </Label>
+                              <Textarea
+                                id="xOverrideText"
+                                value={newPost.xOverrideText}
+                                onChange={(e) => setNewPost({ ...newPost, xOverrideText: e.target.value })}
+                                placeholder="Shorter version for X (280 chars max). Leave blank and the main caption will be used — if it exceeds 280 chars it will auto-split into a thread."
+                                className="min-h-[70px] text-sm"
+                              />
+                              <div className="flex justify-between text-xs">
+                                <span className={
+                                  newPost.xOverrideText.length > 280
+                                    ? 'text-destructive font-medium'
+                                    : newPost.xOverrideText.length > 250
+                                      ? 'text-amber-600'
+                                      : 'text-muted-foreground'
+                                }>
+                                  {newPost.xOverrideText.length}/280 characters
+                                </span>
+                                {newPost.xOverrideText.length === 0 && (
+                                  <span className="text-muted-foreground italic">caption will be used (may thread)</span>
+                                )}
+                              </div>
                             </div>
                           )}
 
@@ -2035,7 +2156,7 @@ export default function Dashboard() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => {
-                                    const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                    const acct = accounts.find(a => a.id === newPost.targetAccountIds[0]);
                                     lintCaption(newPost.caption, acct?.accountType || 'INSTAGRAM');
                                   }}
                                   disabled={isLintingCaption}
@@ -2069,7 +2190,7 @@ export default function Dashboard() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  const acct = accounts.find(a => a.id === newPost.socialMediaAccountId);
+                                  const acct = accounts.find(a => a.id === newPost.targetAccountIds[0]);
                                   loadBestTime(acct?.accountType, acct?.id);
                                 }}
                                 disabled={isLoadingBestTime}

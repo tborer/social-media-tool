@@ -137,19 +137,44 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       return res.status(400).json({ error: errorMsg });
     }
 
-    // Instagram caption length validation
-    if (caption.length > 2200) {
-      const errorMsg = `Caption is too long (${caption.length} characters). Maximum is 2,200.`;
-      await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
-      return res.status(400).json({ error: errorMsg });
+    // Platform-aware caption length and hashtag validation.
+    // Look up the account type so we apply the correct limit per platform.
+    let accountType: string | null = null;
+    if (socialMediaAccountId) {
+      const account = await prisma.socialMediaAccount.findFirst({
+        where: { id: socialMediaAccountId, userId },
+        select: { accountType: true },
+      });
+      accountType = account?.accountType ?? null;
     }
 
-    // Instagram hashtag limit validation
-    const hashtagCount = (caption.match(/#\w+/g) || []).length;
-    if (hashtagCount > 30) {
-      const errorMsg = `Too many hashtags (${hashtagCount}). Maximum is 30.`;
-      await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
-      return res.status(400).json({ error: errorMsg });
+    // Caption length limits by platform:
+    //   Instagram → 2,200  LinkedIn → 3,000  X / unknown → no server-side block (thread-split handles it)
+    if (accountType === 'INSTAGRAM' || accountType === null) {
+      const limit = 2200;
+      if (caption.length > limit) {
+        const errorMsg = `Caption is too long for Instagram (${caption.length} characters). Maximum is ${limit.toLocaleString()}.`;
+        await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
+        return res.status(400).json({ error: errorMsg });
+      }
+    } else if (accountType === 'LINKEDIN') {
+      const limit = 3000;
+      if (caption.length > limit) {
+        const errorMsg = `Caption is too long for LinkedIn (${caption.length} characters). Maximum is ${limit.toLocaleString()}.`;
+        await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
+        return res.status(400).json({ error: errorMsg });
+      }
+    }
+    // X: no caption length block — long captions are split into threads at publish time.
+
+    // Hashtag limit: Instagram allows max 30 hashtags in a caption.
+    if (accountType === 'INSTAGRAM' || accountType === null) {
+      const hashtagCount = (caption.match(/#\w+/g) || []).length;
+      if (hashtagCount > 30) {
+        const errorMsg = `Too many hashtags (${hashtagCount}). Instagram allows a maximum of 30.`;
+        await prisma.log.update({ where: { id: logEntry.id }, data: { error: errorMsg, status: 400 } });
+        return res.status(400).json({ error: errorMsg });
+      }
     }
     
     // Log the size of the caption and imageUrl for debugging
