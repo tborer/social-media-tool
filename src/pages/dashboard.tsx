@@ -269,6 +269,14 @@ export default function Dashboard() {
       toast({ title: "Success", description: "Instagram account connected successfully" });
       const { success: _s, ...rest } = router.query;
       router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    } else if (success === 'linkedin_connected') {
+      toast({ title: "Success", description: "LinkedIn account connected successfully" });
+      const { success: _s, ...rest } = router.query;
+      router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+    } else if (success === 'x_connected') {
+      toast({ title: "Success", description: "X account connected successfully" });
+      const { success: _s, ...rest } = router.query;
+      router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
     }
   }, [router.isReady, router.query.error, router.query.success]);
 
