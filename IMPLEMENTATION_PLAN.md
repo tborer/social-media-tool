@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
 **Last Updated**: April 8, 2026
-**Status**: Phases 1–3 Implemented, Phase 4 In Progress (Features 6–7 Complete)
+**Status**: Phases 1–4 Implemented (Features 6–8 Complete)
 
 ---
 
@@ -229,7 +229,7 @@ The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate per
 
 ---
 
-### Feature 8: Combined Insights Tab & Post Refinement Engine
+### Feature 8: Combined Insights Tab & Post Refinement Engine ✅ COMPLETED
 
 The core of Phase 4. A single tab that aggregates performance data from all connected accounts and uses it to tell the user exactly what to do next to improve engagement.
 
@@ -345,20 +345,29 @@ AI uses the aggregated performance data as context to give specific, actionable 
 **Refinement history**
 - Log of suggestions accepted/rejected, with outcome tracking (did engagement improve after acting on a suggestion?)
 
-**Key files to create / modify:**
-- `src/pages/api/insights/linkedin-insights.ts` — fetch LinkedIn post + account metrics
-- `src/pages/api/insights/x-insights.ts` — fetch X tweet + account metrics
-- `src/pages/api/insights/fetch-all.ts` — extend to fetch LinkedIn + X metrics in the cron
-- `src/pages/api/ai/refine-post.ts` — AI caption/media/tag refinement endpoint
-- `src/pages/api/insights/ab-tests.ts` — A/B pair tracking
-- `src/lib/performance-analyzer.ts` — extend with cross-platform aggregation
-- `src/pages/dashboard.tsx` — redesigned Insights tab (combined view, charts, refinement UI)
-- `prisma/schema.prisma` — schema additions (platform column, extended metrics, ABTest model)
+**What was built:**
+- All PostInsight/AccountInsight records carry a `platform` discriminator (`INSTAGRAM`, `LINKEDIN`, `X`)
+- LinkedIn and X-specific insights endpoints (`linkedin-insights.ts`, `x-insights.ts`)
+- `fetch-all.ts` extended for multi-platform cron collection
+- `performance-analyzer.ts` extended with cross-platform aggregation, `platformStats`, `contentTypeBreakdown`, `underperformers`, `declineAlerts`, hashtag analysis
+- Combined Insights dashboard tab with account overview strip, cross-platform post table, platform comparison stats
+- **Performance charts** (recharts): engagement rate over time line chart per platform, content type performance bar chart
+- What's Working section: top performers per platform, hashtag signals, best posting times
+- What's Not Working section: decline alerts, underperformers with failure mode tags
+- AI Post Refinement panel: caption rewrite (with tone), hashtag optimization, media suggestions
+- A/B Test Tracker: create pairs, side-by-side comparison, mark winner
+- Caption quality linter (pre-publish in create-post dialog and via `/api/insights/lint-caption`)
+- Best-time optimizer with one-click schedule-for-best-time in create-post dialog
+- `ABTest` model, extended `PostInsight`/`AccountInsight` columns
 
-**New migrations:**
-- Add `platform` to `PostInsight` + `AccountInsight`
-- Add extended metric columns
-- Add `ABTest` model
+**Key files:**
+- `src/pages/api/insights/linkedin-insights.ts`, `x-insights.ts`, `combined-insights.ts`, `fetch-all.ts`
+- `src/pages/api/ai/refine-post.ts`, `src/pages/api/insights/ab-tests.ts`, `lint-caption.ts`, `best-time.ts`
+- `src/lib/performance-analyzer.ts`
+- `src/pages/dashboard.tsx` — full Insights tab redesign with recharts charts
+- `prisma/schema.prisma` — ABTest model, platform + extended metric columns
+
+**Migrations:** `20260405020000_add_cross_platform_insight_fields`, `20260405030000_add_ab_test`
 
 ---
 

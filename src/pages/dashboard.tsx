@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,6 +21,7 @@ import { CalendarView } from "@/components/CalendarView";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type SocialMediaAccount = {
   id: string;
@@ -1437,6 +1438,46 @@ export default function Dashboard() {
       setIsLoadingBestTime(false);
     }
   };
+
+  // Chart data: engagement over time (grouped by month per platform)
+  const engagementOverTimeData = useMemo(() => {
+    if (!combinedInsights?.postTable) return [];
+    const monthMap = new Map<string, Record<string, number[]>>();
+    for (const post of combinedInsights.postTable as any[]) {
+      if (!post.platformInsights?.length || !post.updatedAt) continue;
+      const month = new Date(post.updatedAt).toISOString().slice(0, 7);
+      if (!monthMap.has(month)) monthMap.set(month, {});
+      const md = monthMap.get(month)!;
+      for (const ins of post.platformInsights as any[]) {
+        if (ins.engagement == null) continue;
+        if (!md[ins.platform]) md[ins.platform] = [];
+        md[ins.platform].push(ins.engagement);
+      }
+    }
+    return Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, platforms]) => ({
+        month,
+        ...Object.fromEntries(
+          Object.entries(platforms).map(([pl, engs]) => [
+            pl,
+            parseFloat((engs.reduce((s, v) => s + v, 0) / engs.length).toFixed(2)),
+          ])
+        ),
+      }));
+  }, [combinedInsights]);
+
+  // Chart data: unique platforms with insight data
+  const insightPlatforms = useMemo(() => {
+    if (!combinedInsights?.postTable) return [];
+    const set = new Set<string>();
+    for (const post of combinedInsights.postTable as any[]) {
+      for (const ins of (post.platformInsights ?? []) as any[]) {
+        if (ins.platform) set.add(ins.platform);
+      }
+    }
+    return Array.from(set);
+  }, [combinedInsights]);
 
   return (
     <ProtectedRoute>
@@ -3084,6 +3125,72 @@ export default function Dashboard() {
                     </div>
                   </CardContent>
                 </Card>
+              )}
+
+              {/* ---- Performance Charts (8b) ---- */}
+              {combinedInsights && (engagementOverTimeData.length >= 2 || (combinedInsights.summary?.contentTypeBreakdown?.length > 0)) && (
+                <div className="grid gap-6 mb-6 md:grid-cols-2">
+                  {/* Engagement Over Time */}
+                  {engagementOverTimeData.length >= 2 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Engagement Over Time</CardTitle>
+                        <CardDescription>Average engagement rate per platform by month.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <LineChart data={engagementOverTimeData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={(v) => v.slice(5)} />
+                            <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 'auto']} />
+                            <Tooltip formatter={(v: any) => [`${v}%`, '']} labelFormatter={(l) => `Month: ${l}`} />
+                            {insightPlatforms.map((pl) => (
+                              <Line
+                                key={pl}
+                                type="monotone"
+                                dataKey={pl}
+                                stroke={pl === 'INSTAGRAM' ? '#ec4899' : pl === 'LINKEDIN' ? '#2563eb' : '#374151'}
+                                dot={false}
+                                strokeWidth={2}
+                                name={pl === 'INSTAGRAM' ? 'Instagram' : pl === 'LINKEDIN' ? 'LinkedIn' : 'X'}
+                                connectNulls
+                              />
+                            ))}
+                            {insightPlatforms.length > 1 && <Legend />}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Content Type Performance */}
+                  {combinedInsights.summary?.contentTypeBreakdown?.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Content Type Performance</CardTitle>
+                        <CardDescription>Average engagement rate by content format.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart
+                            data={combinedInsights.summary.contentTypeBreakdown.map((ct: any) => ({
+                              type: ct.type === 'BLOG_POST' ? 'Blog' : ct.type.charAt(0) + ct.type.slice(1).toLowerCase(),
+                              engagement: parseFloat(ct.avgEngagement.toFixed(2)),
+                              count: ct.count,
+                            }))}
+                            margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="type" tick={{ fontSize: 11 }} />
+                            <YAxis tick={{ fontSize: 11 }} unit="%" />
+                            <Tooltip formatter={(v: any, name: string) => [`${v}%`, 'Avg Engagement']} />
+                            <Bar dataKey="engagement" fill="#6366f1" radius={[4, 4, 0, 0]} name="Avg Engagement" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
               )}
 
               {/* ---- Cross-Platform Post Performance Table ---- */}
