@@ -547,6 +547,20 @@ async function processScheduledPosts(): Promise<{
           continue;
         }
 
+        // Immediately fail unsupported platforms without retry
+        if (account.accountType === 'BLUESKY') {
+          logger.warn(`Post ${post.id}: BLUESKY publishing is not yet implemented, marking as FAILED immediately`, { userId: post.userId });
+          await prisma.contentPost.update({
+            where: { id: post.id },
+            data: {
+              status: 'FAILED',
+              errorMessage: 'Bluesky publishing is not yet implemented. Connect an Instagram, LinkedIn, or X account instead.',
+            },
+          });
+          results.failed++;
+          continue;
+        }
+
         // Attempt to publish the post
         logger.info(`Publishing post ${post.id} to ${account.accountType} account ${account.username}`, { userId: post.userId });
 
@@ -589,8 +603,6 @@ async function processScheduledPosts(): Promise<{
             post.caption,
             post.userId
           );
-        } else if (account.accountType === 'BLUESKY') {
-          throw new Error('Bluesky posting is not yet implemented');
         } else {
           throw new Error(`Unknown account type: ${account.accountType}`);
         }

@@ -612,10 +612,12 @@ export default function Dashboard() {
 
       // Helper to POST one content-post record
       const createOnePost = async (accountId: string | null, captionOverride?: string) => {
+        const accountForPost = accountId ? accounts.find(a => a.id === accountId) : null;
         const body = {
           ...basePostData,
           ...(captionOverride ? { caption: captionOverride } : {}),
           ...(accountId ? { socialMediaAccountId: accountId } : {}),
+          targetPlatforms: accountForPost ? [accountForPost.accountType] : [],
         };
         const response = await fetch('/api/content-posts', {
           method: 'POST',
@@ -4818,6 +4820,7 @@ export default function Dashboard() {
                         : 'X';
                       const isBluesky = account.accountType === 'BLUESKY';
                       const isChecked = publishDialogAccountIds.includes(account.id);
+                      const isUnsupported = account.accountType === 'BLUESKY';
                       return (
                         <label
                           key={account.id}

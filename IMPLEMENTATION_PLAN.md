@@ -816,7 +816,7 @@ The following fields described in the Phase 5 plan are not present in the schema
 #### 17c: Bluesky Posting Throws Unimplemented Error ✅ FIXED
 - **Issue**: `BLUESKY` is in the `AccountType` enum and users could potentially select it, but both `post.ts` (line 98) and `scheduler/run.ts` (line 587) throw `Error('Bluesky posting is not yet implemented')`. There is no guard in the UI preventing users from attempting to post.
 - **Fix**: Either implement Bluesky posting (Feature 11/12 dependency) or add UI-level guards that disable posting for Bluesky accounts until the feature is ready.
-- **Resolution**: Added UI-level guards in `dashboard.tsx`: (1) In the multi-platform publish dialog, Bluesky account checkboxes are disabled with a `(coming soon)` label and `opacity-50 cursor-not-allowed` styling so users cannot select them. (2) In the schedule dialog account dropdown, Bluesky options are disabled with a `Bluesky — coming soon` label. Full Bluesky posting support is deferred to Feature 11/12.
+- **Resolution**: Added two guards: (1) **Scheduler** — BLUESKY posts are now detected before the publish attempt and immediately marked `FAILED` with a clear error message, bypassing the retry loop. (2) **UI** — the publish dialog disables Bluesky account checkboxes and shows a "Coming soon" label, preventing users from attempting to publish to unsupported Bluesky accounts.
 
 ---
 
