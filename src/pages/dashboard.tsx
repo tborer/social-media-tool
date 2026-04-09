@@ -268,7 +268,7 @@ export default function Dashboard() {
   const [customMessageInstructions, setCustomMessageInstructions] = useState('');
 
   // Instagram prospect search state
-  const [igProspectSearchMode, setIgProspectSearchMode] = useState<'username' | 'hashtag' | 'place'>('username');
+  const [igProspectSearchMode, setIgProspectSearchMode] = useState<'username' | 'hashtag' | 'place' | 'location'>('username');
   const [igProspectUsernames, setIgProspectUsernames] = useState('');
   const [igProspectQuery, setIgProspectQuery] = useState(''); // hashtag / place mode
   const [igProspectNiche, setIgProspectNiche] = useState('');
@@ -283,6 +283,7 @@ export default function Dashboard() {
   const [igProspectShowAdvancedFilters, setIgProspectShowAdvancedFilters] = useState(false);
   const [igProspectResults, setIgProspectResults] = useState<any[]>([]);
   const [igProspectDiscoveredPosts, setIgProspectDiscoveredPosts] = useState<any[]>([]);
+  const [igProspectDiscoveredPlaces, setIgProspectDiscoveredPlaces] = useState<any[]>([]);
   const [igProspectLoading, setIgProspectLoading] = useState(false);
   const [igProspectError, setIgProspectError] = useState('');
 
@@ -1092,6 +1093,7 @@ export default function Dashboard() {
     setIgProspectError('');
     setIgProspectResults([]);
     setIgProspectDiscoveredPosts([]);
+    setIgProspectDiscoveredPlaces([]);
 
     try {
       const params = new URLSearchParams({ searchMode: igProspectSearchMode });
@@ -1118,7 +1120,9 @@ export default function Dashboard() {
       }
       setIgProspectResults(data.results || []);
       setIgProspectDiscoveredPosts(data.discoveredPosts || []);
-      if ((data.results || []).length === 0 && (data.discoveredPosts || []).length === 0) {
+      setIgProspectDiscoveredPlaces(data.discoveredPlaces || []);
+      const totalFound = (data.results || []).length + (data.discoveredPosts || []).length + (data.discoveredPlaces || []).length;
+      if (totalFound === 0) {
         setIgProspectError(
           isUserMode
             ? 'No matching accounts found. Check the username(s) and try again.'
@@ -4791,14 +4795,14 @@ export default function Dashboard() {
                 <CardContent>
                   <div className="grid gap-3">
                     {/* Search mode toggle */}
-                    <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit text-sm">
-                      {(['username', 'hashtag', 'place'] as const).map(mode => (
+                    <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit text-sm flex-wrap">
+                      {(['username', 'hashtag', 'place', 'location'] as const).map(mode => (
                         <button
                           key={mode}
-                          className={`px-3 py-1.5 rounded-md transition-colors capitalize ${igProspectSearchMode === mode ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+                          className={`px-3 py-1.5 rounded-md transition-colors ${igProspectSearchMode === mode ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}`}
                           onClick={() => setIgProspectSearchMode(mode)}
                         >
-                          {mode === 'username' ? 'Username' : mode === 'hashtag' ? 'Hashtag' : 'Place'}
+                          {mode === 'username' ? 'Username' : mode === 'hashtag' ? 'Hashtag' : mode === 'place' ? 'Place tag' : 'Location'}
                         </button>
                       ))}
                     </div>
@@ -4806,7 +4810,10 @@ export default function Dashboard() {
                     {/* Query input — changes based on mode */}
                     <div className="grid gap-1">
                       <Label>
-                        {igProspectSearchMode === 'username' ? 'Instagram Username(s)' : igProspectSearchMode === 'hashtag' ? 'Hashtag' : 'Place / Location'}
+                        {igProspectSearchMode === 'username' ? 'Instagram Username(s)' :
+                         igProspectSearchMode === 'hashtag' ? 'Hashtag' :
+                         igProspectSearchMode === 'place' ? 'Place Name' :
+                         'Business / Venue'}
                       </Label>
                       {igProspectSearchMode === 'username' ? (
                         <Textarea
@@ -4817,7 +4824,11 @@ export default function Dashboard() {
                         />
                       ) : (
                         <Input
-                          placeholder={igProspectSearchMode === 'hashtag' ? 'e.g. fitness or #yoga' : 'e.g. New York City'}
+                          placeholder={
+                            igProspectSearchMode === 'hashtag' ? 'e.g. fitness or #yoga' :
+                            igProspectSearchMode === 'place' ? 'e.g. New York City' :
+                            'e.g. yoga studio Brooklyn, NYC coffee shop'
+                          }
                           value={igProspectQuery}
                           onChange={e => setIgProspectQuery(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') searchIGProspects(); }}
@@ -4827,6 +4838,7 @@ export default function Dashboard() {
                         {igProspectSearchMode === 'username' && 'Comma-separated, up to 10. @ optional.'}
                         {igProspectSearchMode === 'hashtag' && 'Finds accounts posting top content with this hashtag. # optional.'}
                         {igProspectSearchMode === 'place' && 'Searches the place name as a hashtag (e.g. "New York" → #newyork).'}
+                        {igProspectSearchMode === 'location' && 'Searches the Facebook business directory for venues/pages matching your query, then returns their connected Instagram accounts.'}
                       </p>
                     </div>
 
@@ -4935,6 +4947,7 @@ export default function Dashboard() {
                     <Button
                       onClick={searchIGProspects}
                       disabled={igProspectLoading || !(igProspectSearchMode === 'username' ? igProspectUsernames.trim() : igProspectQuery.trim())}
+                      title={igProspectSearchMode === 'location' ? 'Searches Facebook\'s business directory for Instagram accounts at this location' : undefined}
                       className="w-full sm:w-auto"
                     >
                       {igProspectLoading
@@ -4969,6 +4982,11 @@ export default function Dashboard() {
                                 </span>
                                 {prospect.website && (
                                   <span className="text-xs bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">has website</span>
+                                )}
+                                {prospect.locationName && (
+                                  <span className="text-xs bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
+                                    {prospect.locationName}{prospect.locationCity ? ` · ${prospect.locationCity}` : ''}
+                                  </span>
                                 )}
                               </div>
 
@@ -5081,6 +5099,29 @@ export default function Dashboard() {
                               <span>♥ {post.likes?.toLocaleString()}</span>
                               <span>💬 {post.comments?.toLocaleString()}</span>
                             </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Discovered places (location mode — no connected IG account) */}
+                  {igProspectDiscoveredPlaces.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium mb-1">{igProspectDiscoveredPlaces.length} place{igProspectDiscoveredPlaces.length !== 1 ? 's' : ''} matched · no Instagram account connected</p>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        These businesses/venues matched your search but haven't connected an Instagram account to their Facebook Page. Try searching their name in Username mode if they have an Instagram account.
+                      </p>
+                      <div className="space-y-1">
+                        {igProspectDiscoveredPlaces.slice(0, 10).map((place: any) => (
+                          <div key={place.id} className="flex items-center gap-2 text-xs py-0.5 border-b last:border-0">
+                            <span className="font-medium">{place.name}</span>
+                            {(place.city || place.country) && (
+                              <span className="text-muted-foreground">{[place.city, place.country].filter(Boolean).join(', ')}</span>
+                            )}
+                            {place.category && (
+                              <span className="bg-muted px-1.5 py-0.5 rounded">{place.category}</span>
+                            )}
                           </div>
                         ))}
                       </div>

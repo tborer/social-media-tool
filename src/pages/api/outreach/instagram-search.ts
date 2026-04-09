@@ -6,6 +6,7 @@ import { logger } from '@/lib/server-logger';
 import OpenAI from 'openai';
 
 const INSTAGRAM_GRAPH_API = 'https://graph.instagram.com/v22.0';
+const FACEBOOK_GRAPH_API = 'https://graph.facebook.com/v22.0';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -292,6 +293,98 @@ async function scoreProfiles(
     .map(r => r.value);
 }
 
+// ─── Location / business search (Facebook Pages API) ─────────────────────────
+//
+// Instagram Graph API has no location-post discovery equivalent to hashtag search.
+// Instead we query the Facebook Graph API for Pages (businesses/venues) matching
+// the user's query and return the Instagram Business Accounts connected to those
+// pages.  The Instagram long-lived user token is a Facebook User Access Token
+// and works for basic Facebook Graph API reads.
+
+async function searchByLocation(
+  accessToken: string,
+  query: string
+): Promise<{ profiles: any[]; discoveredPlaces: any[] }> {
+  const profiles: any[] = [];
+  const discoveredPlaces: any[] = [];
+  const seenUsernames = new Set<string>();
+
+  try {
+    const igFields = [
+      'username', 'biography', 'followers_count', 'follows_count',
+      'media_count', 'profile_picture_url', 'website',
+      'media.limit(6){id,caption,media_type,like_count,comments_count,permalink,timestamp}',
+    ].join(',');
+
+    const pageFields = `id,name,location,category,instagram_business_account{${igFields}}`;
+
+    const url = new URL(`${FACEBOOK_GRAPH_API}/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('type', 'page');
+    url.searchParams.set('fields', pageFields);
+    url.searchParams.set('limit', '25');
+    url.searchParams.set('access_token', accessToken);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      logger.error('Facebook page search failed', { status: res.status, error: errData });
+      return { profiles: [], discoveredPlaces: [] };
+    }
+
+    const data = await res.json();
+    const pages: any[] = data.data || [];
+
+    for (const page of pages) {
+      const igAcc = page.instagram_business_account;
+
+      if (igAcc?.username && !seenUsernames.has(igAcc.username)) {
+        seenUsernames.add(igAcc.username);
+        const posts = igAcc.media?.data || [];
+        const followers = igAcc.followers_count || 0;
+
+        profiles.push({
+          username: igAcc.username,
+          name: igAcc.name || page.name || '',
+          bio: igAcc.biography || '',
+          followers,
+          following: igAcc.follows_count || 0,
+          mediaCount: igAcc.media_count || 0,
+          profilePicture: igAcc.profile_picture_url || '',
+          website: igAcc.website || null,
+          engagementRate: calcEngagementRate(posts, followers),
+          locationName: page.name,
+          locationCity: [page.location?.city, page.location?.country]
+            .filter(Boolean)
+            .join(', '),
+          recentPosts: posts.slice(0, 3).map((p: any) => ({
+            id: p.id,
+            caption: p.caption || '',
+            likes: p.like_count || 0,
+            comments: p.comments_count || 0,
+            permalink: p.permalink,
+            mediaType: p.media_type,
+          })),
+        });
+      } else if (!igAcc) {
+        // Page matched but no connected Instagram account
+        discoveredPlaces.push({
+          id: page.id,
+          name: page.name,
+          city: page.location?.city,
+          country: page.location?.country,
+          category: page.category,
+        });
+      }
+    }
+
+    return { profiles, discoveredPlaces };
+  } catch (error) {
+    logger.error('Error in location/business search', { query, error });
+    return { profiles: [], discoveredPlaces: [] };
+  }
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -348,6 +441,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   let profiles: any[] = [];
   let discoveredPosts: any[] = [];
+  let discoveredPlaces: any[] = [];
 
   try {
     if (mode === 'username') {
@@ -368,8 +462,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       profiles = settled
         .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
         .map(r => r.value);
-    } else {
-      // hashtag or place mode
+
+    } else if (mode === 'hashtag' || mode === 'place') {
       const rawQuery = (queryParam as string) || '';
       if (!rawQuery.trim()) {
         return res.status(400).json({ error: 'A search query is required' });
@@ -380,7 +474,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ? rawQuery.replace(/\s+/g, '').toLowerCase()
           : rawQuery.replace(/^#/, '').trim().toLowerCase();
 
-      // Need our own IG user ID for the hashtag API
       const meRes = await fetch(`${INSTAGRAM_GRAPH_API}/me?fields=id&access_token=${accessToken}`);
       if (!meRes.ok) {
         return res.status(400).json({ error: 'Failed to get Instagram user info' });
@@ -391,6 +484,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const result = await searchHashtagAccounts(accessToken, hashtag, igUserId);
       profiles = result.profiles;
       discoveredPosts = result.discoveredPosts;
+
+    } else if (mode === 'location') {
+      const rawQuery = (queryParam as string) || '';
+      if (!rawQuery.trim()) {
+        return res.status(400).json({ error: 'A location query is required' });
+      }
+
+      const result = await searchByLocation(accessToken, rawQuery);
+      profiles = result.profiles;
+      discoveredPlaces = result.discoveredPlaces;
+
+    } else {
+      return res.status(400).json({ error: `Unknown searchMode: ${mode}` });
     }
   } catch (error) {
     logger.error('Instagram prospect search error', { error });
@@ -436,5 +542,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     profiles.sort((a, b) => b.score - a.score);
   }
 
-  return res.status(200).json({ results: profiles, discoveredPosts });
+  return res.status(200).json({ results: profiles, discoveredPosts, discoveredPlaces });
 }
