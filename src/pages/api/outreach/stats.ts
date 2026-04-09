@@ -34,26 +34,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }),
     ]);
 
-    const contactStats: Record<string, number> = {
+    const contactByStatusMap: Record<string, number> = {
       PROSPECT: 0, CONTACTED: 0, RESPONDED: 0, CONVERTED: 0, INACTIVE: 0,
     };
     for (const row of contactsByStatus) {
-      contactStats[row.status] = row._count;
+      contactByStatusMap[row.status] = row._count;
     }
 
-    const messageStats: Record<string, number> = {
+    const messageByStatusMap: Record<string, number> = {
       DRAFT: 0, SENT: 0, REPLIED: 0, NO_REPLY: 0,
     };
     for (const row of messagesByStatus) {
-      messageStats[row.status] = row._count;
+      messageByStatusMap[row.status] = row._count;
     }
 
-    const denominator = messageStats.SENT + messageStats.REPLIED + messageStats.NO_REPLY;
-    const responseRate = denominator > 0 ? messageStats.REPLIED / denominator : 0;
+    const denominator = messageByStatusMap.SENT + messageByStatusMap.REPLIED + messageByStatusMap.NO_REPLY;
+    const responseRate = denominator > 0 ? messageByStatusMap.REPLIED / denominator : 0;
 
     return res.status(200).json({
-      contactsByStatus: contactStats,
-      messagesByStatus: messageStats,
+      contactsByStatus: contactByStatusMap,
+      messagesByStatus: messageByStatusMap,
       responseRate: Math.round(responseRate * 10000) / 10000,
       messagesSentThisWeek,
     });
