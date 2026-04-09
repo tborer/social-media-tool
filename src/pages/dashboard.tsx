@@ -268,11 +268,22 @@ export default function Dashboard() {
   const [customMessageInstructions, setCustomMessageInstructions] = useState('');
 
   // Instagram prospect search state
+  const [igProspectSearchMode, setIgProspectSearchMode] = useState<'username' | 'hashtag' | 'place' | 'location'>('username');
   const [igProspectUsernames, setIgProspectUsernames] = useState('');
+  const [igProspectQuery, setIgProspectQuery] = useState(''); // hashtag / place mode
   const [igProspectNiche, setIgProspectNiche] = useState('');
   const [igProspectFollowerMin, setIgProspectFollowerMin] = useState('');
   const [igProspectFollowerMax, setIgProspectFollowerMax] = useState('');
+  const [igProspectHasWebsite, setIgProspectHasWebsite] = useState(false);
+  const [igProspectMinPosts, setIgProspectMinPosts] = useState('');
+  const [igProspectMaxFollowing, setIgProspectMaxFollowing] = useState('');
+  const [igProspectAnalyzeImage, setIgProspectAnalyzeImage] = useState(false);
+  const [igProspectTargetAgeRange, setIgProspectTargetAgeRange] = useState('any');
+  const [igProspectTargetGender, setIgProspectTargetGender] = useState('any');
+  const [igProspectShowAdvancedFilters, setIgProspectShowAdvancedFilters] = useState(false);
   const [igProspectResults, setIgProspectResults] = useState<any[]>([]);
+  const [igProspectDiscoveredPosts, setIgProspectDiscoveredPosts] = useState<any[]>([]);
+  const [igProspectDiscoveredPlaces, setIgProspectDiscoveredPlaces] = useState<any[]>([]);
   const [igProspectLoading, setIgProspectLoading] = useState(false);
   const [igProspectError, setIgProspectError] = useState('');
 
@@ -1074,15 +1085,33 @@ export default function Dashboard() {
   };
 
   const searchIGProspects = async () => {
-    if (!igProspectUsernames.trim()) return;
+    const isUserMode = igProspectSearchMode === 'username';
+    const queryVal = isUserMode ? igProspectUsernames : igProspectQuery;
+    if (!queryVal.trim()) return;
+
     setIgProspectLoading(true);
     setIgProspectError('');
     setIgProspectResults([]);
+    setIgProspectDiscoveredPosts([]);
+    setIgProspectDiscoveredPlaces([]);
+
     try {
-      const params = new URLSearchParams({ usernames: igProspectUsernames.trim() });
+      const params = new URLSearchParams({ searchMode: igProspectSearchMode });
+      if (isUserMode) {
+        params.set('usernames', igProspectUsernames.trim());
+      } else {
+        params.set('query', igProspectQuery.trim());
+      }
       if (igProspectNiche.trim()) params.set('niche', igProspectNiche.trim());
       if (igProspectFollowerMin.trim()) params.set('followerMin', igProspectFollowerMin.trim());
       if (igProspectFollowerMax.trim()) params.set('followerMax', igProspectFollowerMax.trim());
+      if (igProspectHasWebsite) params.set('hasWebsite', 'true');
+      if (igProspectMinPosts.trim()) params.set('minPosts', igProspectMinPosts.trim());
+      if (igProspectMaxFollowing.trim()) params.set('maxFollowing', igProspectMaxFollowing.trim());
+      if (igProspectAnalyzeImage) params.set('analyzeImage', 'true');
+      if (igProspectAnalyzeImage && igProspectTargetAgeRange !== 'any') params.set('targetAgeRange', igProspectTargetAgeRange);
+      if (igProspectAnalyzeImage && igProspectTargetGender !== 'any') params.set('targetGender', igProspectTargetGender);
+
       const res = await fetch(`/api/outreach/instagram-search?${params}`, { credentials: 'include' });
       const data = await res.json();
       if (!res.ok) {
@@ -1090,7 +1119,16 @@ export default function Dashboard() {
         return;
       }
       setIgProspectResults(data.results || []);
-      if ((data.results || []).length === 0) setIgProspectError('No matching accounts found. Check the username(s) and try again.');
+      setIgProspectDiscoveredPosts(data.discoveredPosts || []);
+      setIgProspectDiscoveredPlaces(data.discoveredPlaces || []);
+      const totalFound = (data.results || []).length + (data.discoveredPosts || []).length + (data.discoveredPlaces || []).length;
+      if (totalFound === 0) {
+        setIgProspectError(
+          isUserMode
+            ? 'No matching accounts found. Check the username(s) and try again.'
+            : 'No results found. Try a different search term.'
+        );
+      }
     } catch {
       setIgProspectError('Search failed. Please try again.');
     } finally {
@@ -4751,61 +4789,170 @@ export default function Dashboard() {
                 <CardHeader>
                   <CardTitle className="text-base">Find Instagram Prospects</CardTitle>
                   <CardDescription>
-                    Look up Instagram accounts by username to evaluate them for cold outreach. Enter one username or a comma-separated list (up to 10). Requires a connected Instagram Business or Creator account.
+                    Discover and evaluate Instagram accounts for cold outreach. Search by username, hashtag, or place. Requires a connected Instagram Business or Creator account.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-3">
-                    {/* Username input */}
-                    <div className="grid gap-1">
-                      <Label>Instagram Username(s)</Label>
-                      <Textarea
-                        placeholder="username1, username2, username3"
-                        value={igProspectUsernames}
-                        onChange={e => setIgProspectUsernames(e.target.value)}
-                        className="min-h-[60px] text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground">Separate multiple usernames with commas. @ prefix is optional.</p>
+                    {/* Search mode toggle */}
+                    <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit text-sm flex-wrap">
+                      {(['username', 'hashtag', 'place', 'location'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          className={`px-3 py-1.5 rounded-md transition-colors ${igProspectSearchMode === mode ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+                          onClick={() => setIgProspectSearchMode(mode)}
+                        >
+                          {mode === 'username' ? 'Username' : mode === 'hashtag' ? 'Hashtag' : mode === 'place' ? 'Place tag' : 'Location'}
+                        </button>
+                      ))}
                     </div>
 
-                    {/* Optional filters */}
+                    {/* Query input — changes based on mode */}
+                    <div className="grid gap-1">
+                      <Label>
+                        {igProspectSearchMode === 'username' ? 'Instagram Username(s)' :
+                         igProspectSearchMode === 'hashtag' ? 'Hashtag' :
+                         igProspectSearchMode === 'place' ? 'Place Name' :
+                         'Business / Venue'}
+                      </Label>
+                      {igProspectSearchMode === 'username' ? (
+                        <Textarea
+                          placeholder="username1, username2, username3"
+                          value={igProspectUsernames}
+                          onChange={e => setIgProspectUsernames(e.target.value)}
+                          className="min-h-[60px] text-sm"
+                        />
+                      ) : (
+                        <Input
+                          placeholder={
+                            igProspectSearchMode === 'hashtag' ? 'e.g. fitness or #yoga' :
+                            igProspectSearchMode === 'place' ? 'e.g. New York City' :
+                            'e.g. yoga studio Brooklyn, NYC coffee shop'
+                          }
+                          value={igProspectQuery}
+                          onChange={e => setIgProspectQuery(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') searchIGProspects(); }}
+                        />
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {igProspectSearchMode === 'username' && 'Comma-separated, up to 10. @ optional.'}
+                        {igProspectSearchMode === 'hashtag' && 'Finds accounts posting top content with this hashtag. # optional.'}
+                        {igProspectSearchMode === 'place' && 'Searches the place name as a hashtag (e.g. "New York" → #newyork).'}
+                        {igProspectSearchMode === 'location' && 'Searches the Facebook business directory for venues/pages matching your query, then returns their connected Instagram accounts.'}
+                      </p>
+                    </div>
+
+                    {/* Basic filters */}
                     <div className="grid grid-cols-3 gap-3">
                       <div className="grid gap-1">
                         <Label>Target Niche</Label>
-                        <Input
-                          placeholder="e.g. fitness"
-                          value={igProspectNiche}
-                          onChange={e => setIgProspectNiche(e.target.value)}
-                        />
+                        <Input placeholder="e.g. fitness" value={igProspectNiche} onChange={e => setIgProspectNiche(e.target.value)} />
                       </div>
                       <div className="grid gap-1">
                         <Label>Min Followers</Label>
-                        <Input
-                          type="number"
-                          placeholder="e.g. 5000"
-                          value={igProspectFollowerMin}
-                          onChange={e => setIgProspectFollowerMin(e.target.value)}
-                        />
+                        <Input type="number" placeholder="e.g. 5000" value={igProspectFollowerMin} onChange={e => setIgProspectFollowerMin(e.target.value)} />
                       </div>
                       <div className="grid gap-1">
                         <Label>Max Followers</Label>
-                        <Input
-                          type="number"
-                          placeholder="e.g. 100000"
-                          value={igProspectFollowerMax}
-                          onChange={e => setIgProspectFollowerMax(e.target.value)}
-                        />
+                        <Input type="number" placeholder="e.g. 100000" value={igProspectFollowerMax} onChange={e => setIgProspectFollowerMax(e.target.value)} />
                       </div>
                     </div>
 
+                    {/* Advanced filters toggle */}
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 w-fit"
+                      onClick={() => setIgProspectShowAdvancedFilters(!igProspectShowAdvancedFilters)}
+                    >
+                      <span>{igProspectShowAdvancedFilters ? '▲' : '▼'}</span> Advanced Filters
+                    </button>
+
+                    {igProspectShowAdvancedFilters && (
+                      <div className="grid gap-3 p-3 bg-muted/40 rounded-lg border">
+                        {/* Profile filters */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="grid gap-1">
+                            <Label>Min Posts</Label>
+                            <Input type="number" placeholder="e.g. 12" value={igProspectMinPosts} onChange={e => setIgProspectMinPosts(e.target.value)} />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label>Max Following</Label>
+                            <Input type="number" placeholder="e.g. 2000" value={igProspectMaxFollowing} onChange={e => setIgProspectMaxFollowing(e.target.value)} />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="ig-has-website"
+                            checked={igProspectHasWebsite}
+                            onChange={e => setIgProspectHasWebsite(e.target.checked)}
+                            className="h-4 w-4 rounded border"
+                          />
+                          <Label htmlFor="ig-has-website" className="text-sm font-normal cursor-pointer">Has website link in bio</Label>
+                        </div>
+
+                        {/* Profile image analysis */}
+                        <div className="border-t pt-3 grid gap-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="ig-analyze-image"
+                              checked={igProspectAnalyzeImage}
+                              onChange={e => setIgProspectAnalyzeImage(e.target.checked)}
+                              className="h-4 w-4 rounded border"
+                            />
+                            <Label htmlFor="ig-analyze-image" className="text-sm font-normal cursor-pointer">
+                              Analyze profile pictures with AI
+                            </Label>
+                            <span className="text-xs text-muted-foreground">(uses OpenAI Vision · estimates age & gender)</span>
+                          </div>
+
+                          {igProspectAnalyzeImage && (
+                            <div className="grid grid-cols-2 gap-3 pl-6">
+                              <div className="grid gap-1">
+                                <Label>Filter by Age Range</Label>
+                                <select
+                                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                  value={igProspectTargetAgeRange}
+                                  onChange={e => setIgProspectTargetAgeRange(e.target.value)}
+                                >
+                                  <option value="any">Any age</option>
+                                  <option value="under-18">Under 18</option>
+                                  <option value="18-24">18 – 24</option>
+                                  <option value="25-34">25 – 34</option>
+                                  <option value="35-44">35 – 44</option>
+                                  <option value="45-54">45 – 54</option>
+                                  <option value="55+">55+</option>
+                                </select>
+                              </div>
+                              <div className="grid gap-1">
+                                <Label>Filter by Gender</Label>
+                                <select
+                                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                  value={igProspectTargetGender}
+                                  onChange={e => setIgProspectTargetGender(e.target.value)}
+                                >
+                                  <option value="any">Any</option>
+                                  <option value="female">Female presentation</option>
+                                  <option value="male">Male presentation</option>
+                                  <option value="non-binary">Non-binary</option>
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     <Button
                       onClick={searchIGProspects}
-                      disabled={igProspectLoading || !igProspectUsernames.trim()}
+                      disabled={igProspectLoading || !(igProspectSearchMode === 'username' ? igProspectUsernames.trim() : igProspectQuery.trim())}
+                      title={igProspectSearchMode === 'location' ? 'Searches Facebook\'s business directory for Instagram accounts at this location' : undefined}
                       className="w-full sm:w-auto"
                     >
                       {igProspectLoading
                         ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Analyzing...</>
-                        : <><Search className="mr-2 h-4 w-4" />Analyze Accounts</>
+                        : <><Search className="mr-2 h-4 w-4" />Find Prospects</>
                       }
                     </Button>
 
@@ -4814,39 +4961,68 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  {/* Results */}
+                  {/* Profile results */}
                   {igProspectResults.length > 0 && (
-                    <div className="mt-4 space-y-3">
-                      <p className="text-sm font-medium">{igProspectResults.length} account{igProspectResults.length !== 1 ? 's' : ''} analyzed</p>
+                    <div className="mt-5 space-y-3">
+                      <p className="text-sm font-medium">{igProspectResults.length} account{igProspectResults.length !== 1 ? 's' : ''} found</p>
                       {igProspectResults.map((prospect: any) => (
                         <div key={prospect.username} className="rounded-lg border p-4">
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
+                              {/* Header row: username, name, score */}
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium text-sm">@{prospect.username}</span>
                                 {prospect.name && <span className="text-sm text-muted-foreground">{prospect.name}</span>}
-                                {/* Score badge */}
                                 <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${
                                   prospect.score >= 7 ? 'bg-green-100 text-green-800' :
                                   prospect.score >= 4 ? 'bg-yellow-100 text-yellow-800' :
                                   'bg-red-100 text-red-800'
                                 }`}>
-                                  Score {prospect.score}/10
+                                  {prospect.score}/10
                                 </span>
+                                {prospect.website && (
+                                  <span className="text-xs bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">has website</span>
+                                )}
+                                {prospect.locationName && (
+                                  <span className="text-xs bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
+                                    {prospect.locationName}{prospect.locationCity ? ` · ${prospect.locationCity}` : ''}
+                                  </span>
+                                )}
                               </div>
 
-                              {/* Stats row */}
+                              {/* Stats */}
                               <div className="flex flex-wrap gap-3 mt-1 text-xs text-muted-foreground">
                                 <span>{prospect.followers?.toLocaleString() || 0} followers</span>
-                                {prospect.engagementRate !== null && (
-                                  <span>{prospect.engagementRate}% engagement</span>
-                                )}
+                                {prospect.following > 0 && <span>{prospect.following?.toLocaleString()} following</span>}
+                                {prospect.engagementRate !== null && <span>{prospect.engagementRate}% eng.</span>}
                                 {prospect.mediaCount > 0 && <span>{prospect.mediaCount} posts</span>}
                               </div>
 
+                              {/* Image analysis badges */}
+                              {prospect.imageAnalysis && (
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {prospect.imageAnalysis.isPersonPhoto === false && (
+                                    <span className="text-xs bg-purple-50 text-purple-700 rounded px-1.5 py-0.5">brand / logo</span>
+                                  )}
+                                  {prospect.imageAnalysis.estimatedAgeRange && (
+                                    <span className="text-xs bg-orange-50 text-orange-700 rounded px-1.5 py-0.5">
+                                      age ~{prospect.imageAnalysis.estimatedAgeRange}
+                                    </span>
+                                  )}
+                                  {prospect.imageAnalysis.genderPresentation && prospect.imageAnalysis.genderPresentation !== 'unclear' && (
+                                    <span className="text-xs bg-pink-50 text-pink-700 rounded px-1.5 py-0.5">
+                                      {prospect.imageAnalysis.genderPresentation}
+                                    </span>
+                                  )}
+                                  {prospect.imageAnalysis.imageQuality === 'professional' && (
+                                    <span className="text-xs bg-green-50 text-green-700 rounded px-1.5 py-0.5">professional photo</span>
+                                  )}
+                                </div>
+                              )}
+
                               {/* Bio */}
                               {prospect.bio && (
-                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{prospect.bio}</p>
+                                <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{prospect.bio}</p>
                               )}
 
                               {/* AI analysis */}
@@ -4854,18 +5030,16 @@ export default function Dashboard() {
                                 <p className="text-xs mt-1.5 text-foreground/80 italic">{prospect.aiSummary}</p>
                               )}
                               {prospect.aiSuggestedAngle && (
-                                <p className="text-xs mt-0.5 text-blue-700 dark:text-blue-400">
-                                  Angle: {prospect.aiSuggestedAngle}
-                                </p>
+                                <p className="text-xs mt-0.5 text-blue-700 dark:text-blue-400">Angle: {prospect.aiSuggestedAngle}</p>
                               )}
 
-                              {/* Recent post captions preview */}
+                              {/* Recent post captions */}
                               {prospect.recentPosts?.length > 0 && (
                                 <div className="mt-2 flex flex-wrap gap-1">
                                   {prospect.recentPosts.slice(0, 2).map((post: any, i: number) => (
                                     post.caption && (
-                                      <span key={i} className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[200px]">
-                                        {post.caption.slice(0, 50)}{post.caption.length > 50 ? '…' : ''}
+                                      <span key={i} className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[220px]">
+                                        {post.caption.slice(0, 55)}{post.caption.length > 55 ? '…' : ''}
                                       </span>
                                     )
                                   ))}
@@ -4874,7 +5048,7 @@ export default function Dashboard() {
                             </div>
 
                             {/* Actions */}
-                            <div className="flex flex-col gap-1 shrink-0">
+                            <div className="flex flex-col gap-1.5 shrink-0 items-end">
                               <Button
                                 size="sm"
                                 variant={prospect.added ? 'outline' : 'default'}
@@ -4889,7 +5063,7 @@ export default function Dashboard() {
                                 href={`https://www.instagram.com/${prospect.username}/`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-xs text-center text-muted-foreground hover:underline"
+                                className="text-xs text-muted-foreground hover:underline"
                               >
                                 View profile
                               </a>
@@ -4897,6 +5071,60 @@ export default function Dashboard() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Discovered posts (hashtag/place — username not resolvable) */}
+                  {igProspectDiscoveredPosts.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium mb-1">{igProspectDiscoveredPosts.length} post{igProspectDiscoveredPosts.length !== 1 ? 's' : ''} found · account info unavailable</p>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        These posts matched your search but Instagram did not return the account username. Click the links to view on Instagram and note any accounts you want to add manually.
+                      </p>
+                      <div className="space-y-2">
+                        {igProspectDiscoveredPosts.slice(0, 6).map((post: any) => (
+                          <div key={post.id} className="rounded-lg border p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{post.caption || '(no caption)'}</p>
+                              <a
+                                href={post.permalink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:underline shrink-0"
+                              >
+                                View post →
+                              </a>
+                            </div>
+                            <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                              <span>♥ {post.likes?.toLocaleString()}</span>
+                              <span>💬 {post.comments?.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Discovered places (location mode — no connected IG account) */}
+                  {igProspectDiscoveredPlaces.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium mb-1">{igProspectDiscoveredPlaces.length} place{igProspectDiscoveredPlaces.length !== 1 ? 's' : ''} matched · no Instagram account connected</p>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        These businesses/venues matched your search but haven't connected an Instagram account to their Facebook Page. Try searching their name in Username mode if they have an Instagram account.
+                      </p>
+                      <div className="space-y-1">
+                        {igProspectDiscoveredPlaces.slice(0, 10).map((place: any) => (
+                          <div key={place.id} className="flex items-center gap-2 text-xs py-0.5 border-b last:border-0">
+                            <span className="font-medium">{place.name}</span>
+                            {(place.city || place.country) && (
+                              <span className="text-muted-foreground">{[place.city, place.country].filter(Boolean).join(', ')}</span>
+                            )}
+                            {place.category && (
+                              <span className="bg-muted px-1.5 py-0.5 rounded">{place.category}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </CardContent>
