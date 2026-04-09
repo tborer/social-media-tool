@@ -562,6 +562,12 @@ async function processScheduledPosts(): Promise<{
 
         let publishResult: any = null;
 
+        // NOTE: post.targetPlatforms is an advisory field used for UI pre-selection
+        // of accounts in the publish dialog. The scheduler always publishes to the
+        // single socialMediaAccountId linked to the post. For multi-platform
+        // scheduled publishing, users should create separate ContentPost records
+        // per platform (each with its own socialMediaAccountId).
+
         if (account.accountType === 'INSTAGRAM') {
           publishResult = await postToInstagram(
             accessToken,

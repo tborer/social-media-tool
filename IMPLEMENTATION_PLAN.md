@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
 **Last Updated**: April 9, 2026
-**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented. Feature 15 (Critical Bugs & Build Issues) Complete. Feature 16 (Schema & Migration Gaps) Complete.
+**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented. Feature 15 (Critical Bugs & Build Issues) Complete. Feature 16 (Schema & Migration Gaps) Complete. Feature 17 (Multi-Platform Publishing Gaps) Complete.
 
 ---
 
@@ -801,19 +801,22 @@ The following fields described in the Phase 5 plan are not present in the schema
 
 ---
 
-### Feature 17: Multi-Platform Publishing Gaps
+### Feature 17: Multi-Platform Publishing Gaps ✅ COMPLETED
 
-#### 17a: `targetPlatforms` Field Not Used by Scheduler
+#### 17a: `targetPlatforms` Field Not Used by Scheduler ✅ RESOLVED
 - **Issue**: `ContentPost.targetPlatforms` (String[]) is stored in the database but never read by `scheduler/run.ts`. The scheduler publishes to whichever single `SocialMediaAccount` is linked to the post. Users setting multiple target platforms get no actual multi-platform posting.
 - **Fix**: Refactor the scheduler to iterate over `targetPlatforms` and publish to each corresponding account, OR remove the field if multi-platform posting will use the `PostPublication` model instead.
+- **Resolution**: Aligned with the Feature 16d architectural decision (single-account-per-record). The `targetPlatforms` field is advisory only — it is used by the dashboard UI to pre-select accounts in the publish dialog. The scheduler correctly publishes to the single `socialMediaAccountId` linked to each post; users who want multi-platform scheduled posting should create separate `ContentPost` records per account. Added an explanatory comment in `scheduler/run.ts` to document this behavior.
 
-#### 17b: `publish-all` Endpoint Not Documented
+#### 17b: `publish-all` Endpoint Not Documented ✅ FIXED
 - **Issue**: `/api/content-posts/[id]/publish-all.ts` exists in the codebase and is called from the dashboard (line 4874), but is not listed in the API Endpoints section of the plan.
 - **Fix**: Add documentation for this endpoint in the API Endpoints section.
+- **Resolution**: Updated the API Endpoints section — "Multi-Account Publishing" entry now marked ✅ Complete with a full description of the request shape, response behavior (HTTP 207 for partial success), and platform post ID storage.
 
-#### 17c: Bluesky Posting Throws Unimplemented Error
+#### 17c: Bluesky Posting Throws Unimplemented Error ✅ FIXED
 - **Issue**: `BLUESKY` is in the `AccountType` enum and users could potentially select it, but both `post.ts` (line 98) and `scheduler/run.ts` (line 587) throw `Error('Bluesky posting is not yet implemented')`. There is no guard in the UI preventing users from attempting to post.
 - **Fix**: Either implement Bluesky posting (Feature 11/12 dependency) or add UI-level guards that disable posting for Bluesky accounts until the feature is ready.
+- **Resolution**: Added UI-level guards in `dashboard.tsx`: (1) In the multi-platform publish dialog, Bluesky account checkboxes are disabled with a `(coming soon)` label and `opacity-50 cursor-not-allowed` styling so users cannot select them. (2) In the schedule dialog account dropdown, Bluesky options are disabled with a `Bluesky — coming soon` label. Full Bluesky posting support is deferred to Feature 11/12.
 
 ---
 
@@ -1112,8 +1115,8 @@ A full testing layer covering every feature from Phase 1 through Phase 5. Tests 
 - `GET/POST /api/insights/ab-tests` — manage A/B test pairs
 - `GET /api/insights/ab-tests/[id]` — comparison results for a pair
 
-**Multi-Account Publishing** (undocumented, exists in codebase)
-- `POST /api/content-posts/[id]/publish-all` — publish a post to all targeted platform accounts
+**Multi-Account Publishing** ✅ Complete
+- `POST /api/content-posts/[id]/publish-all` — publish a single ContentPost to multiple platform accounts in one request; accepts `{ accountIds: string[] }`; returns per-account results with HTTP 207 (Multi-Status) when only some accounts succeed; stores platform post IDs (`igMediaId`, `linkedinPostId`, `xPostId`) on the ContentPost record
 
 ### Phase 5 Endpoints (Planned)
 **Copy to Draft**

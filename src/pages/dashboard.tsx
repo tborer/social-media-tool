@@ -4816,16 +4816,19 @@ export default function Dashboard() {
                         : account.accountType === 'LINKEDIN' ? 'LinkedIn'
                         : account.accountType === 'BLUESKY' ? 'Bluesky'
                         : 'X';
+                      const isBluesky = account.accountType === 'BLUESKY';
                       const isChecked = publishDialogAccountIds.includes(account.id);
                       return (
                         <label
                           key={account.id}
-                          className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                          className={`flex items-center gap-3 px-3 py-2 transition-colors ${isBluesky ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-muted/50'}`}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
+                            disabled={isBluesky}
                             onChange={(e) => {
+                              if (isBluesky) return;
                               setPublishDialogAccountIds(e.target.checked
                                 ? [...publishDialogAccountIds, account.id]
                                 : publishDialogAccountIds.filter(id => id !== account.id));
@@ -4833,7 +4836,9 @@ export default function Dashboard() {
                             className="h-4 w-4 rounded border-gray-300"
                           />
                           <span className="text-sm font-medium">{account.username}</span>
-                          <span className="text-xs text-muted-foreground ml-auto">{platformLabel}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">
+                            {platformLabel}{isBluesky ? ' (coming soon)' : ''}
+                          </span>
                         </label>
                       );
                     })}
@@ -4964,9 +4969,10 @@ export default function Dashboard() {
                   >
                     <option value="">Select an account</option>
                     {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
+                      <option key={account.id} value={account.id} disabled={account.accountType === "BLUESKY"}>
                         {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" :
-                         account.accountType === "LINKEDIN" ? "LinkedIn" : account.accountType === "BLUESKY" ? "Bluesky" : "X"})
+                         account.accountType === "LINKEDIN" ? "LinkedIn" :
+                         account.accountType === "BLUESKY" ? "Bluesky — coming soon" : "X"})
                       </option>
                     ))}
                   </select>
