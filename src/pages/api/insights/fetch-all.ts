@@ -190,8 +190,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         for (const post of posts) {
           summary.postsProcessed++;
           try {
+            // Determine IG media type to pick the right metrics (Reels don't support `impressions`)
+            let igMediaType = '';
+            try {
+              const typeRes = await fetch(
+                `${INSTAGRAM_GRAPH_API}/${post.igMediaId}?fields=media_type&access_token=${accessToken}`
+              );
+              if (typeRes.ok) {
+                const typeData = await typeRes.json();
+                igMediaType = typeData.media_type ?? '';
+              }
+            } catch {
+              // Non-fatal
+            }
+            const isReel = igMediaType === 'REELS';
+            const insightMetrics = isReel
+              ? 'reach,likes,comments,shares,saved,plays'
+              : 'impressions,reach,likes,comments,shares,saved';
+
             const piRes = await fetch(
-              `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=impressions,reach,likes,comments,shares,saved&access_token=${accessToken}`
+              `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${insightMetrics}&access_token=${accessToken}`
             );
             if (!piRes.ok) {
               const errData = await piRes.json();

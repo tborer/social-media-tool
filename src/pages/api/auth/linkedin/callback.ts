@@ -14,7 +14,7 @@ import prisma from '@/lib/prisma';
  *
  * Handles the redirect from LinkedIn after the user authorizes the app.
  * Exchanges the authorization code for an access token, fetches the user's
- * LinkedIn profile via /v2/me, and upserts the account in the database.
+ * LinkedIn profile via /v2/userinfo (OpenID Connect), and upserts the account in the database.
  *
  * Query Parameters (set by LinkedIn):
  * - code: Authorization code
@@ -119,8 +119,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.redirect('/dashboard?error=' + encodeURIComponent(msg));
     }
 
-    // Step 2: Fetch LinkedIn profile via /v2/me (no openid scope required)
-    console.log('[LinkedIn callback] Fetching member profile from /v2/me');
+    // Step 2: Fetch LinkedIn profile via /v2/userinfo (OpenID Connect)
+    console.log('[LinkedIn callback] Fetching member profile from /v2/userinfo');
     let linkedInUser;
     try {
       linkedInUser = await getUserInfo(tokenResponse.access_token);
