@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
 **Last Updated**: April 9, 2026
-**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented. Feature 15 (Critical Bugs & Build Issues) Complete.
+**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented. Feature 15 (Critical Bugs & Build Issues) Complete. Feature 16 (Schema & Migration Gaps) Complete.
 
 ---
 
@@ -155,10 +155,10 @@ The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate per
 **What to build:**
 
 **Database / schema changes**
-- Add `LINKEDIN` to the `AccountType` enum (X already exists; Bluesky is deferred)
+- Add `LINKEDIN`, `X`, and `BLUESKY` to the `AccountType` enum (LINKEDIN added in migration `20260405000000`; X and BLUESKY added in migration `20260409000000`)
 - Add `linkedinUserId`, `linkedinOrganizationId` (optional — for company page posting) columns to `SocialMediaAccount`
 - Add `xUserId` column to `SocialMediaAccount` for the Twitter/X numeric user ID
-- Add `platformPostId` to `ContentPost` (nullable String) — generic field alongside existing `igMediaId` to store the native post ID returned by each platform after publishing
+- Store per-platform post IDs on `ContentPost`: `igMediaId` (Instagram), `linkedinPostId` (LinkedIn), `xPostId` (X) — each nullable String storing the native post ID returned by the respective platform after publishing
 
 **LinkedIn OAuth (OAuth 2.0 with PKCE)**
 - Scopes required: `openid`, `profile`, `email`, `w_member_social`, `r_basicprofile`, `r_organization_social` (for org pages)
@@ -213,7 +213,7 @@ The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate per
 - Per-platform preview pane showing how the post will render (character count, truncation warnings)
 - Platform-specific warnings shown inline (e.g., "LinkedIn ignores hashtags beyond 5", "This tweet will be split into a 3-part thread")
 - `ContentPost.targetPlatforms` — new `String[]` field storing which platforms a post targets
-- After publishing, store `platformPostId` per platform (may require a `PostPublication` join table if publishing to multiple platforms in one go)
+- After publishing, store the native post ID in the per-platform field (`igMediaId`, `linkedinPostId`, `xPostId`). A `PostPublication` join table may be needed if publishing to multiple platforms from a single `ContentPost` record in one go
 
 **Scheduler updates**
 - `scheduler/run.ts` — extend to publish scheduled posts to LinkedIn and X in addition to Instagram
@@ -225,7 +225,9 @@ The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate per
 - `src/lib/x-client.ts` — `publishTweet(account, postData)`, `uploadMedia(account, buffer)`, `publishThread(account, tweets)` implementation
 - `src/pages/dashboard.tsx` — multi-platform post creation UI
 - `src/pages/api/scheduler/run.ts` — multi-platform scheduler
-- `prisma/schema.prisma` — `targetPlatforms` field, `PostPublication` model (optional)
+- `prisma/schema.prisma` — `targetPlatforms` field, per-platform post ID fields (`linkedinPostId`, `xPostId`)
+
+> **Architecture note (16d resolution):** The current approach is one `ContentPost` per `SocialMediaAccount` (single-account-per-record). Multi-platform posting creates separate `ContentPost` records for each platform via the `publish-all` endpoint. The `PostPublication` join table is deferred; it should be reconsidered if/when Feature 12 (Enhanced Multi-Platform Publishing UI) introduces true single-record multi-platform publishing.
 
 ---
 
@@ -764,25 +766,29 @@ Phase 6 consolidates all issues, inconsistencies, and gaps discovered during a c
 
 ---
 
-### Feature 16: Schema & Migration Gaps
+### Feature 16: Schema & Migration Gaps ✅ COMPLETED
 
-#### 16a: Missing `X` and `BLUESKY` Enum Migrations
+#### 16a: Missing `X` and `BLUESKY` Enum Migrations ✅ FIXED
 - **Issue**: The `AccountType` enum in `schema.prisma` includes `X` and `BLUESKY`, but no migration adds these values. Migration `20260405000000` only adds `LINKEDIN`. A fresh database deploy will fail because the enum values don't exist.
 - **Fix**: Create a new migration that adds `X` and `BLUESKY` to the `AccountType` enum via `ALTER TYPE "AccountType" ADD VALUE IF NOT EXISTS 'X'` and `ALTER TYPE "AccountType" ADD VALUE IF NOT EXISTS 'BLUESKY'`.
+- **Resolution**: Created migration `20260409000000_add_x_bluesky_enum_values` with `ALTER TYPE` statements for both values.
 
-#### 16b: Missing `linkClicks` Column on `PostInsight`
+#### 16b: Missing `linkClicks` Column on `PostInsight` ✅ FIXED
 - **Issue**: Feature 8 spec (section 8a) calls for a `linkClicks Int?` column on `PostInsight`. The column does not exist in the schema or any migration. The `clicks` column exists but is semantically different (total clicks vs. link-specific clicks).
 - **Fix**: Either add `linkClicks Int?` to `PostInsight` or document that `clicks` serves as the combined metric and update the plan accordingly.
+- **Resolution**: Added `linkClicks Int?` to the `PostInsight` model in `schema.prisma` and created migration `20260409010000_add_link_clicks_to_post_insight`. The existing `clicks` column is retained as the general/combined click metric; `linkClicks` tracks link-specific clicks (LinkedIn link clicks / X `url_link_clicks`). Updated the Database Models section to reflect both columns.
 
-#### 16c: `platformPostId` on `ContentPost` — Plan vs. Reality
+#### 16c: `platformPostId` on `ContentPost` — Plan vs. Reality ✅ FIXED
 - **Issue**: The plan describes a single generic `platformPostId String?` on `ContentPost` to store the native post ID for any platform. The actual schema uses three separate fields: `igMediaId`, `linkedinPostId`, `xPostId`. This divergence is not documented.
 - **Fix**: Update the plan's Database Models and Feature 6 sections to reflect the actual per-platform ID approach. If Facebook and Bluesky are added, decide whether to continue with per-platform fields or refactor to a `PostPublication` join table.
+- **Resolution**: Updated Feature 6, Feature 7, and Database Models sections to document the per-platform ID approach (`igMediaId`, `linkedinPostId`, `xPostId`). Removed references to a generic `platformPostId` on `ContentPost` and `SocialMediaAccount`. Per-platform fields will continue for Facebook/Bluesky; a `PostPublication` join table is deferred to Feature 12 if needed. Also corrected Feature 6's claim that "X already exists" — `X` was added to the schema but not via migration until 16a.
 
-#### 16d: Missing `PostPublication` Join Table
+#### 16d: Missing `PostPublication` Join Table ✅ RESOLVED
 - **Issue**: Feature 7 mentions an optional `PostPublication` join model for tracking multi-platform publication of a single post. It was never created. The current approach (one `ContentPost` → one `SocialMediaAccount`) limits true multi-platform-in-one-go publishing.
 - **Fix**: Decide on the architecture: either implement `PostPublication` (many-to-many between posts and accounts) or formalize the current single-account-per-record approach.
+- **Resolution**: Formalized the current single-account-per-record approach. Multi-platform posting creates separate `ContentPost` records per platform via the `publish-all` endpoint. Added an architecture note in Feature 7 documenting this decision and deferring `PostPublication` to Feature 12 (Enhanced Multi-Platform Publishing UI) if true single-record multi-platform publishing is needed.
 
-#### 16e: Phase 5 Schema Fields Not Yet Created
+#### 16e: Phase 5 Schema Fields Not Yet Created ✅ VERIFIED
 The following fields described in the Phase 5 plan are not present in the schema or any migration and must be created when their respective features are implemented:
 - `ContentPost.originalPostId String?` (self-referential FK for copy-to-draft lineage — Feature 10)
 - `ContentPost.platformOverrides Json?` (per-platform caption/metadata overrides — Feature 12)
@@ -791,6 +797,7 @@ The following fields described in the Phase 5 plan are not present in the schema
 - `SocialMediaAccount.blueskyHandle String?` (Feature 11)
 - `SocialMediaAccount.blueskyDid String?` (Feature 11)
 - `FACEBOOK` value in `AccountType` enum (Feature 11)
+- **Resolution**: Confirmed none of these fields exist in the current schema. They will be added as part of their respective feature implementations (Features 10–12).
 
 ---
 
@@ -1035,10 +1042,10 @@ A full testing layer covering every feature from Phase 1 through Phase 5. Tests 
 - `OutreachCriteria` — saved search criteria (searchTerms, locations, niches, follower range)
 
 ### Phase 4 Models (Planned)
-- `PostInsight` — extend: add `platform String`, `clicks Int?`, `profileVisits Int?`, `linkClicks Int?`, `platformPostId String?`
+- `PostInsight` — extend: add `platform String`, `clicks Int` (general clicks), `linkClicks Int?` (link-specific clicks), `profileVisits Int?`, `bookmarks Int?`, `platformPostId String?`
 - `AccountInsight` — extend: add `platform String`, `followerGrowth Int?`
-- `SocialMediaAccount` — extend: add `linkedinUserId String?`, `linkedinOrganizationId String?`, `xUserId String?`, `platformPostId String?`
-- `ContentPost` — extend: add `targetPlatforms String[]`, `platformPostId String?`
+- `SocialMediaAccount` — extend: add `linkedinUserId String?`, `linkedinOrganizationId String?`, `xUserId String?`
+- `ContentPost` — extend: add `targetPlatforms String[]`, `linkedinPostId String?`, `xPostId String?` (per-platform post IDs alongside existing `igMediaId`)
 - `ABTest` — A/B test pair (postAId, postBId, notes, comparedAt)
 
 ### Phase 5 Models (Planned)
