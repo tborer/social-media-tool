@@ -65,7 +65,7 @@ async function getContentPost(req: NextApiRequest, res: NextApiResponse, postId:
 
 // Update a content post
 async function updateContentPost(req: NextApiRequest, res: NextApiResponse, postId: string, userId: string) {
-  const { caption, imageUrl, status, scheduledFor, socialMediaAccountId } = req.body;
+  const { caption, imageUrl, status, scheduledFor, socialMediaAccountId, platformOverrides } = req.body;
   
   try {
     // Check if post exists and belongs to the user
@@ -103,6 +103,7 @@ async function updateContentPost(req: NextApiRequest, res: NextApiResponse, post
         ...(status !== undefined && { status }),
         ...(scheduledFor !== undefined && { scheduledFor }),
         ...(socialMediaAccountId !== undefined && { socialMediaAccountId }),
+        ...(platformOverrides !== undefined && { platformOverrides }),
       },
     });
     

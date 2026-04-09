@@ -104,7 +104,7 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       });
     }
     
-    const { caption, imageUrl, socialMediaAccountId, contentType, videoType, status, targetPlatforms } = req.body;
+    const { caption, imageUrl, socialMediaAccountId, contentType, videoType, status, targetPlatforms, platformOverrides } = req.body;
 
     // Update log with request details
     await prisma.log.update({
@@ -244,6 +244,11 @@ async function createContentPost(req: NextApiRequest, res: NextApiResponse, user
       targetPlatforms: Array.isArray(targetPlatforms) ? targetPlatforms : [],
     };
     
+    // Add platformOverrides if provided (JSON object with per-platform caption/media overrides)
+    if (platformOverrides && typeof platformOverrides === 'object') {
+      postData.platformOverrides = platformOverrides;
+    }
+
     // Add contentType if provided
     if (contentType) {
       postData.contentType = contentType;

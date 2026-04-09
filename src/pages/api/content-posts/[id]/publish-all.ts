@@ -5,6 +5,8 @@ import { logger } from '@/lib/server-logger';
 import { getAccessToken } from '@/lib/instagram-token-manager';
 import { publishPost as publishLinkedInPost } from '@/lib/linkedin-client';
 import { publishTweet } from '@/lib/x-client';
+import { publishFacebookPost } from '@/lib/facebook-client';
+import { createPost as createBlueskyPost, refreshSession } from '@/lib/bluesky-client';
 import { decrypt, isEncryptionConfigured } from '@/lib/encryption';
 
 // Resolve image URL to a publicly accessible URL
@@ -209,6 +211,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updates.xPostId = result.tweetId;
         if (!updates.socialMediaAccountId) updates.socialMediaAccountId = account.id;
         results.push({ accountId: account.id, platform: 'X', username: account.username, success: true, postId: result.tweetId });
+      } else if (account.accountType === 'FACEBOOK') {
+        if (!account.facebookPageId) throw new Error('No Facebook Page connected');
+        let pageToken = account.accessToken;
+        if (account.isEncrypted && isEncryptionConfigured()) {
+          pageToken = decrypt(account.accessToken);
+        }
+        let resolvedImageUrl: string | null = null;
+        if (post.imageUrl) {
+          try { resolvedImageUrl = await resolveImageUrl(post.imageUrl, supabase, user.id); } catch {}
+        }
+        const result = await publishFacebookPost(account.facebookPageId, pageToken, post.caption, resolvedImageUrl);
+        updates.facebookPostId = result.postId;
+        if (!updates.socialMediaAccountId) updates.socialMediaAccountId = account.id;
+        results.push({ accountId: account.id, platform: 'FACEBOOK', username: account.username, success: true, postId: result.postId });
+      } else if (account.accountType === 'BLUESKY') {
+        if (!account.blueskyDid) throw new Error('No Bluesky DID found — reconnect your account');
+        let accessJwt = account.accessToken;
+        let refreshJwt = account.refreshToken || '';
+        if (account.isEncrypted && isEncryptionConfigured()) {
+          accessJwt = decrypt(account.accessToken);
+          if (account.refreshToken) refreshJwt = decrypt(account.refreshToken);
+        }
+        // Refresh session to ensure token is valid
+        try {
+          const session = await refreshSession(refreshJwt);
+          accessJwt = session.accessJwt;
+        } catch {
+          // If refresh fails, try with existing token
+        }
+        const result = await createBlueskyPost(accessJwt, account.blueskyDid, post.caption);
+        updates.blueskyPostUri = result.uri;
+        if (!updates.socialMediaAccountId) updates.socialMediaAccountId = account.id;
+        results.push({ accountId: account.id, platform: 'BLUESKY', username: account.username, success: true, postId: result.uri });
       } else {
         results.push({ accountId: account.id, platform: account.accountType, username: account.username, success: false, error: `Platform ${account.accountType} not yet supported` });
       }

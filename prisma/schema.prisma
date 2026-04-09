@@ -37,6 +37,10 @@ model SocialMediaAccount {
   linkedinUserId         String?       // LinkedIn member URN, e.g. "urn:li:person:{id}"
   linkedinOrganizationId String?       // LinkedIn org URN for company page posting (optional)
   xUserId                String?       // X numeric user ID
+  facebookPageId         String?       // Facebook Page ID for posting
+  facebookPageName       String?       // Display name of connected Facebook Page
+  blueskyHandle          String?       // Bluesky handle (e.g. user.bsky.social)
+  blueskyDid             String?       // Bluesky DID (decentralized identifier)
   userId                 String        @db.Uuid
   user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt              DateTime      @default(now())
@@ -52,6 +56,7 @@ enum AccountType {
   LINKEDIN
   BLUESKY
   X
+  FACEBOOK
 }
 
 model ContentPost {
@@ -69,6 +74,10 @@ model ContentPost {
   igMediaId            String?            // Instagram media ID after publishing
   linkedinPostId       String?            // LinkedIn post URN after publishing
   xPostId              String?            // X tweet ID after publishing
+  originalPostId       String?            // ID of the source post when created via copy-to-draft
+  platformOverrides    Json?              // Per-platform caption/media overrides (Feature 12)
+  facebookPostId       String?            // Facebook post ID after publishing
+  blueskyPostUri       String?            // Bluesky AT-URI after publishing
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   userId               String             @db.Uuid
