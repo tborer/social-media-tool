@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/components/ui/use-toast";
-import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings, Search, UserPlus } from "lucide-react";
+import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings, Search, UserPlus, Copy } from "lucide-react";
 import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
@@ -1369,6 +1369,30 @@ export default function Dashboard() {
     }
   };
 
+  // Copy a published post to a new draft
+  const [isCopyingToDraft, setIsCopyingToDraft] = useState(false);
+  const copyPostToDraft = async (postId: string) => {
+    setIsCopyingToDraft(true);
+    try {
+      const response = await fetch(`/api/content-posts/${postId}/copy-to-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to copy post');
+      }
+      // Add the new draft to the local posts list
+      setPosts(prev => [data, ...prev]);
+      toast({ title: "Copied to Draft", description: "Post copied as a new draft. You can edit it in the Content Creation tab." });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error instanceof Error ? error.message : "Failed to copy post to draft" });
+    } finally {
+      setIsCopyingToDraft(false);
+    }
+  };
+
   // Refresh LinkedIn/X insights for an account
   const refreshPlatformAccountInsights = async (accountId: string, platform: 'LINKEDIN' | 'X') => {
     setIsFetchingInsights(true);
@@ -2575,6 +2599,19 @@ export default function Dashboard() {
                             </Button>
                           </div>
                         )}
+                        {(post.status === 'PUBLISHED' || post.status === 'FAILED') && (
+                          <div className="w-full mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full"
+                              onClick={() => copyPostToDraft(post.id)}
+                              disabled={isCopyingToDraft}
+                            >
+                              <Copy className="h-4 w-4 mr-2" /> Copy to Draft
+                            </Button>
+                          </div>
+                        )}
                       </CardFooter>
                     </Card>
                   ))}
@@ -2993,7 +3030,15 @@ export default function Dashboard() {
                             )}
                             <p className="text-sm text-muted-foreground line-clamp-3">{post.caption}</p>
                           </CardContent>
-                          <CardFooter>
+                          <CardFooter className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => copyPostToDraft(post.id)}
+                              disabled={isCopyingToDraft}
+                            >
+                              <Copy className="h-4 w-4 mr-2" /> Copy to Draft
+                            </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button variant="destructive" size="sm">
@@ -3410,6 +3455,17 @@ export default function Dashboard() {
                                 </Button>
                               </div>
                             )}
+                            <div className="mt-2 pt-2 border-t flex justify-end">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => copyPostToDraft(post.postId)}
+                                disabled={isCopyingToDraft}
+                              >
+                                <Copy className="h-3.5 w-3.5 mr-1" /> Copy to Draft
+                              </Button>
+                            </div>
                           </div>
                         ))}
                     </div>
@@ -3758,6 +3814,17 @@ export default function Dashboard() {
                                       {ins.saves > 0 && <span><span className="font-medium text-foreground">{ins.saves?.toLocaleString()}</span> saves</span>}
                                     </div>
                                   )}
+                                  <div className="flex justify-end mt-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 text-xs"
+                                      onClick={(e) => { e.stopPropagation(); copyPostToDraft(post.postId); }}
+                                      disabled={isCopyingToDraft}
+                                    >
+                                      <Copy className="h-3 w-3 mr-1" /> Copy to Draft
+                                    </Button>
+                                  </div>
                                 </div>
                               );
                             })}
