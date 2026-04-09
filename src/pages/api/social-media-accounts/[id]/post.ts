@@ -5,6 +5,9 @@ import { logger } from '@/lib/server-logger';
 import { getAccessToken } from '@/lib/instagram-token-manager';
 import { publishPost as publishLinkedInPost } from '@/lib/linkedin-client';
 import { publishTweet } from '@/lib/x-client';
+import { publishFacebookPost } from '@/lib/facebook-client';
+import { createPost as createBlueskyPost, refreshSession } from '@/lib/bluesky-client';
+import { decrypt, isEncryptionConfigured } from '@/lib/encryption';
 
 // Helper function to resolve image URL to a publicly accessible URL
 async function resolveImageUrl(imageUrl: string, supabase: any, userId: string) {
@@ -91,12 +94,8 @@ async function resolveImageUrl(imageUrl: string, supabase: any, userId: string) 
 
 
 // ---------------------------------------------------------------------------
-// Bluesky (placeholder)
+// Bluesky publishing — delegates to bluesky-client lib
 // ---------------------------------------------------------------------------
-
-async function postToBluesky(accessToken: string, imageUrl: string, caption: string, supabase: any, userId: string) {
-  throw new Error('Bluesky posting is not yet implemented. Coming soon!');
-}
 
 // Helper function to post to Instagram (images and videos)
 async function postToInstagram(
@@ -447,9 +446,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
       postResult = await publishTweet(account, post.caption, resolvedImageUrl, user.id);
+    } else if (account.accountType === 'FACEBOOK') {
+      if (!account.facebookPageId) {
+        return res.status(400).json({ error: 'No Facebook Page connected to this account' });
+      }
+      let pageToken = account.accessToken;
+      if (account.isEncrypted && isEncryptionConfigured()) {
+        pageToken = decrypt(account.accessToken);
+      }
+      let resolvedImageUrl: string | null = null;
+      if (post.imageUrl) {
+        try {
+          resolvedImageUrl = await resolveImageUrl(post.imageUrl, supabase, user.id);
+        } catch (err: any) {
+          logger.warn(`Could not resolve image URL for Facebook post: ${err.message}`, { userId: user.id });
+        }
+      }
+      postResult = await publishFacebookPost(account.facebookPageId, pageToken, post.caption, resolvedImageUrl);
     } else if (account.accountType === 'BLUESKY') {
-      const accessToken = await getAccessToken(account.id, user.id);
-      postResult = await postToBluesky(accessToken, post.imageUrl ?? '', post.caption, supabase, user.id);
+      if (!account.blueskyDid) {
+        return res.status(400).json({ error: 'No Bluesky DID found — reconnect your account' });
+      }
+      let accessJwt = account.accessToken;
+      let refreshJwt = account.refreshToken || '';
+      if (account.isEncrypted && isEncryptionConfigured()) {
+        accessJwt = decrypt(account.accessToken);
+        if (account.refreshToken) refreshJwt = decrypt(account.refreshToken);
+      }
+      // Refresh the session to ensure the JWT is valid
+      try {
+        const session = await refreshSession(refreshJwt);
+        accessJwt = session.accessJwt;
+      } catch {
+        // If refresh fails, try with existing token
+      }
+      postResult = await createBlueskyPost(accessJwt, account.blueskyDid, post.caption);
     } else {
       return res.status(400).json({ error: `Unsupported account type: ${account.accountType}` });
     }
@@ -457,7 +488,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const platformLabel =
       account.accountType === 'INSTAGRAM' ? 'Instagram' :
       account.accountType === 'LINKEDIN' ? 'LinkedIn' :
-      account.accountType === 'X' ? 'X' : account.accountType;
+      account.accountType === 'X' ? 'X' :
+      account.accountType === 'FACEBOOK' ? 'Facebook' :
+      account.accountType === 'BLUESKY' ? 'Bluesky' : account.accountType;
 
     // Log the request
     await logger.log({
@@ -483,6 +516,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         igMediaId:       account.accountType === 'INSTAGRAM' ? (postResult?.mediaId ?? null) : undefined,
         linkedinPostId:  account.accountType === 'LINKEDIN'  ? (postResult?.postId  ?? null) : undefined,
         xPostId:         account.accountType === 'X'         ? (postResult?.tweetId ?? null) : undefined,
+        facebookPostId:  account.accountType === 'FACEBOOK'  ? (postResult?.postId  ?? null) : undefined,
+        blueskyPostUri:  account.accountType === 'BLUESKY'   ? (postResult?.uri     ?? null) : undefined,
       },
     });
 

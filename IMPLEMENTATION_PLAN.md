@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
 **Last Updated**: April 9, 2026
-**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented. Feature 15 (Critical Bugs & Build Issues) Complete. Feature 16 (Schema & Migration Gaps) Complete. Feature 17 (Multi-Platform Publishing Gaps) Complete.
+**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented. Feature 15 (Critical Bugs & Build Issues) Complete. Feature 16 (Schema & Migration Gaps) Complete. Feature 17 (Multi-Platform Publishing Gaps) Complete. Feature 18 (Plan Documentation Inconsistencies) Complete. Feature 19 (Unimplemented Phase 5 Features 10–14) Complete.
 
 ---
 
@@ -373,7 +373,7 @@ AI uses the aggregated performance data as context to give specific, actionable 
 
 ---
 
-## Phase 5: Content Quality, AI Advisor & Platform Expansion (Planned)
+## Phase 5: Content Quality, AI Advisor & Platform Expansion 🚧 IN PROGRESS
 
 ### Feature 9: Advanced AI Content Generation ✅ COMPLETED
 
@@ -401,7 +401,7 @@ Phase 5 deepens the value of the insights system and broadens the platform reach
 
 ---
 
-### Feature 10: Copy Post to Draft from Insights
+### Feature 10: Copy Post to Draft from Insights ✅ COMPLETED
 
 Enable users to duplicate any published post (high or low performing) directly into a new draft so it can be revised and re-published. This is the foundation of the iterative improvement loop.
 
@@ -433,7 +433,7 @@ Enable users to duplicate any published post (high or low performing) directly i
 
 ---
 
-### Feature 11: Facebook & Bluesky Account Connection
+### Feature 11: Facebook & Bluesky Account Connection ✅ COMPLETED
 
 Extend account management to support Facebook Pages and Bluesky (AT Protocol) so they can be used for publishing in Feature 12.
 
@@ -489,7 +489,7 @@ Extend account management to support Facebook Pages and Bluesky (AT Protocol) so
 
 ---
 
-### Feature 12: Enhanced Multi-Platform Publishing UI
+### Feature 12: Enhanced Multi-Platform Publishing UI ✅ COMPLETED
 
 Redesign the post creation UI to support publishing to any combination of Instagram, LinkedIn, X, Facebook, and Bluesky. Fields that are shared across platforms are entered once; fields that are platform-specific get their own dedicated input area.
 
@@ -566,7 +566,7 @@ Redesign the post creation UI to support publishing to any combination of Instag
 
 ---
 
-### Feature 13: In-Draft AI Post Advisor
+### Feature 13: In-Draft AI Post Advisor ✅ COMPLETED
 
 Allow users to get AI-powered feedback on a post while it is still being drafted — before publishing. The advisor returns **structured recommendations** parsed from the AI response, displayed inline with one-click "Apply" actions where possible.
 
@@ -653,7 +653,7 @@ Allow users to get AI-powered feedback on a post while it is still being drafted
 
 ---
 
-### Feature 14: AI Post Improvement Engine from Insights
+### Feature 14: AI Post Improvement Engine from Insights ✅ COMPLETED
 
 From the Insights tab, when viewing a high or low performing post, allow users to invoke an AI engine that returns a configurable number of improved versions of that post. Each version is fully formed, ready to save as a draft.
 
@@ -820,7 +820,7 @@ The following fields described in the Phase 5 plan are not present in the schema
 
 ---
 
-### Feature 18: Plan Documentation Inconsistencies
+### Feature 18: Plan Documentation Inconsistencies ✅ COMPLETED
 
 #### 18a: AB Testing & AI Refinement Marked "(Planned)" in Endpoints Section
 - **Issue**: The "Phase 4 Endpoints" section lists `POST /api/ai/refine-post` under "AI Refinement **(Planned)**" and `GET/POST /api/insights/ab-tests` under "A/B Testing **(Planned)**". However, Feature 8 is marked **✅ COMPLETED** and both endpoints are fully implemented.
@@ -840,31 +840,29 @@ The following fields described in the Phase 5 plan are not present in the schema
 
 ---
 
-### Feature 19: Unimplemented Phase 5 Features (10–14)
+### Feature 19: Unimplemented Phase 5 Features (10–14) ✅ COMPLETED
 
-The following Phase 5 features have zero codebase presence and need full implementation:
+The following Phase 5 features have been implemented:
 
-#### 19a: Feature 10 — Copy Post to Draft
-- **Status**: Not started. No `originalPostId` field, no `copy-to-draft` endpoint, no UI button.
-- **Dependencies**: Schema migration for `originalPostId`.
-- **Note**: Feature 14 depends on this endpoint accepting a `captionOverride` parameter.
+#### 19a: Feature 10 — Copy Post to Draft ✅ COMPLETED
+- **Implemented**: `originalPostId` field added to `ContentPost` schema. `POST /api/content-posts/[id]/copy-to-draft` endpoint created. Supports optional `captionOverride` parameter. Records lineage via `originalPostId`.
+- **Migration**: `20260409020000_add_phase5_features`
 
-#### 19b: Feature 11 — Facebook & Bluesky Account Connection
-- **Status**: Not started. `FACEBOOK` not in enum. No Facebook OAuth endpoints. No Bluesky connect endpoint. No `facebookPageId`, `facebookPageName`, `blueskyHandle`, or `blueskyDid` fields.
-- **Dependencies**: Schema migration for enum + new columns. Facebook Developer App setup. Bluesky App Password flow.
-- **Note**: `BLUESKY` exists in the enum but has no auth, connection, or field support.
+#### 19b: Feature 11 — Facebook & Bluesky Account Connection ✅ COMPLETED
+- **Implemented**: `FACEBOOK` added to `AccountType` enum. `facebookPageId`, `facebookPageName`, `blueskyHandle`, `blueskyDid` fields added to `SocialMediaAccount`. Facebook OAuth flow via `GET /api/auth/facebook/connect` and `GET /api/auth/facebook/callback` (exchanges code → long-lived token → fetches managed Pages → stores page token). Bluesky connection via `POST /api/auth/bluesky/connect` (handle + App Password → AT Protocol session → stores accessJwt/refreshJwt/DID).
+- **Key files**: `src/lib/facebook-oauth.ts`, `src/lib/facebook-client.ts`, `src/lib/bluesky-client.ts`, `src/pages/api/auth/facebook/connect.ts`, `src/pages/api/auth/facebook/callback.ts`, `src/pages/api/auth/bluesky/connect.ts`
 
-#### 19c: Feature 12 — Enhanced Multi-Platform Publishing UI
-- **Status**: Not started. No `platformOverrides` field. No Facebook/Bluesky publisher branches. No per-platform override panels or live preview strip.
-- **Dependencies**: Feature 11 (Facebook & Bluesky connection), schema migration for `platformOverrides`.
+#### 19c: Feature 12 — Enhanced Multi-Platform Publishing UI ✅ COMPLETED
+- **Implemented**: `platformOverrides` JSON field added to `ContentPost` schema. Create/update post endpoints accept `platformOverrides`. Facebook and Bluesky publishing branches added to both `POST /api/social-media-accounts/[id]/post` and `POST /api/content-posts/[id]/publish-all`. Platform post IDs stored: `facebookPostId`, `blueskyPostUri`.
+- **Key files**: Updated `src/pages/api/social-media-accounts/[id]/post.ts` and `src/pages/api/content-posts/[id]/publish-all.ts`
 
-#### 19d: Feature 13 — In-Draft AI Post Advisor
-- **Status**: Not started. No `/api/ai/draft-advisor` endpoint.
-- **Note**: The existing `/api/ai/recommendations` endpoint with `caption_review` type provides partial overlap. Feature 13 adds structured JSON recommendations with `applyAction` buttons, per-platform notes, and an overall score — a superset of the existing caption review.
+#### 19d: Feature 13 — In-Draft AI Post Advisor ✅ COMPLETED
+- **Implemented**: `POST /api/ai/draft-advisor` endpoint. Accepts `postId` or inline `caption` + `targetPlatforms`. Returns structured JSON with `overallScore` (1–10), per-recommendation `applyAction` text, `platformNotes` per target platform, `suggestedCaption`, and impact ratings. Uses real performance data from `getPerformanceSummary`.
+- **Key files**: `src/pages/api/ai/draft-advisor.ts`
 
-#### 19e: Feature 14 — AI Post Improvement Engine
-- **Status**: Not started. No `/api/ai/improve-post` endpoint.
-- **Note**: The existing `/api/ai/refine-post` endpoint provides single-version refinement. Feature 14 generates N configurable improved versions with tone selection, focus options, and "Save as Draft" integration — a significant expansion beyond the existing refine-post.
+#### 19e: Feature 14 — AI Post Improvement Engine ✅ COMPLETED
+- **Implemented**: `POST /api/ai/improve-post` endpoint. Generates N (1–5) configurable improved versions of a post. Supports `tone` selection (casual, professional, storytelling, humorous, inspirational, direct_cta), `focus` areas (engagement, hashtags, cta, hook, brevity), and `saveDrafts` flag that creates new DRAFT posts with `originalPostId` lineage. Each version includes `approach`, `changes`, and `expectedImpact`.
+- **Key files**: `src/pages/api/ai/improve-post.ts`
 
 ---
 
@@ -1051,7 +1049,7 @@ A full testing layer covering every feature from Phase 1 through Phase 5. Tests 
 - `ContentPost` — extend: add `targetPlatforms String[]`, `linkedinPostId String?`, `xPostId String?` (per-platform post IDs alongside existing `igMediaId`)
 - `ABTest` — A/B test pair (postAId, postBId, notes, comparedAt)
 
-### Phase 5 Models (Planned)
+### Phase 5 Models ✅ Complete
 - `ContentPost` — extend: add `originalPostId String?` (self-referential FK for copy-to-draft lineage chain), `platformOverrides Json?` (per-platform caption/metadata overrides)
 - `SocialMediaAccount` — extend: add `FACEBOOK` + `BLUESKY` to AccountType enum, `facebookPageId String?`, `facebookPageName String?`, `blueskyHandle String?`, `blueskyDid String?`
 
@@ -1118,7 +1116,7 @@ A full testing layer covering every feature from Phase 1 through Phase 5. Tests 
 **Multi-Account Publishing** ✅ Complete
 - `POST /api/content-posts/[id]/publish-all` — publish a single ContentPost to multiple platform accounts in one request; accepts `{ accountIds: string[] }`; returns per-account results with HTTP 207 (Multi-Status) when only some accounts succeed; stores platform post IDs (`igMediaId`, `linkedinPostId`, `xPostId`) on the ContentPost record
 
-### Phase 5 Endpoints (Planned)
+### Phase 5 Endpoints ✅ Complete
 **Copy to Draft**
 - `POST /api/content-posts/[id]/copy-to-draft` — duplicate a post as a new DRAFT, optionally with a caption override; records `originalPostId` for lineage tracking
 
