@@ -164,7 +164,8 @@ model PostInsight {
   comments       Int         @default(0)
   shares         Int         @default(0)
   saves          Int         @default(0)
-  clicks         Int         @default(0) // LinkedIn link clicks / X url_link_clicks
+  clicks         Int         @default(0) // Total / general clicks (combined metric)
+  linkClicks     Int?        // Link-specific clicks (LinkedIn link clicks / X url_link_clicks)
   profileVisits  Int         @default(0) // X user_profile_clicks
   bookmarks      Int         @default(0) // X bookmark_count
   engagement     Float       @default(0) // Calculated engagement rate
