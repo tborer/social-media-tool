@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
-**Last Updated**: April 8, 2026
-**Status**: Phases 1–4 Implemented (Features 6–8 Complete), Phase 5 Feature 9 Complete
+**Last Updated**: April 9, 2026
+**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented.
 
 ---
 
@@ -144,7 +144,7 @@ A social media management tool built with Next.js, Prisma, PostgreSQL (Supabase)
 
 ---
 
-## Phase 4: Multi-Platform Expansion & Combined Insights 🚧 IN PROGRESS
+## Phase 4: Multi-Platform Expansion & Combined Insights ✅ COMPLETED
 
 The goal of Phase 4 is to extend posting to LinkedIn and X, then consolidate performance data from all connected platforms into a unified insights experience that actively helps users understand what is working, what is not, and how to improve it. Every feature should serve the north-star goal of **increasing engagement through data-driven refinement**.
 
@@ -433,7 +433,7 @@ Enable users to duplicate any published post (high or low performing) directly i
 
 ### Feature 11: Facebook & Bluesky Account Connection
 
-Extend account management to support Facebook Pages and Bluesky (AT Protocol) so they can be used for publishing in Feature 11.
+Extend account management to support Facebook Pages and Bluesky (AT Protocol) so they can be used for publishing in Feature 12.
 
 **What to build:**
 
@@ -741,14 +741,272 @@ From the Insights tab, when viewing a high or low performing post, allow users t
 
 ---
 
-## Phase 6: Future Enhancements (Planned)
+## Phase 6: Fixes, Gaps & Production Readiness (Planned)
 
-### Feature 15: Production Polish
-- End-to-end testing suite
+Phase 6 consolidates all issues, inconsistencies, and gaps discovered during a comprehensive audit of Phases 1–5 against the actual codebase. It also introduces a full test suite covering every feature. The goal is to bring the application to production quality before adding net-new functionality.
+
+---
+
+### Feature 15: Critical Bugs & Build Issues
+
+#### 15a: Prisma Client Build Error (CRITICAL)
+- **Issue**: Production builds fail with `Module not found: Can't resolve '.prisma/client/index-browser'`. Import chain: `prisma.ts → logger.ts → LogsViewer.tsx → dashboard.tsx`.
+- **Impact**: Blocks all production deployments.
+- **Fix**: Ensure `prisma generate` runs as part of the build pipeline (e.g., `"build": "prisma generate && next build"` in `package.json`). Verify `.prisma/client` is not in `.gitignore` or add a `postinstall` script.
+
+#### 15b: Outreach Stats Field Name Mismatch (BUG)
+- **Issue**: `/api/outreach/stats.ts` returns `{ contactStats, messageStats }` but `dashboard.tsx` (lines 4418–4421) reads `outreachStats.contactsByStatus.PROSPECT`, etc. All outreach funnel metrics display as **0** in the UI.
+- **Fix**: Rename `contactStats` → `contactsByStatus` and `messageStats` → `messagesByStatus` in the stats API response (or update the dashboard references).
+
+#### 15c: next.config.mjs Warnings
+- **Issue**: Build output shows `Invalid next.config.mjs options detected: Unrecognized key(s) in object: 'turbopack', 'api'`.
+- **Fix**: Remove the empty `turbopack: {}` key and move `api.bodyParser` config to the correct location or verify Next.js version compatibility.
+
+---
+
+### Feature 16: Schema & Migration Gaps
+
+#### 16a: Missing `X` and `BLUESKY` Enum Migrations
+- **Issue**: The `AccountType` enum in `schema.prisma` includes `X` and `BLUESKY`, but no migration adds these values. Migration `20260405000000` only adds `LINKEDIN`. A fresh database deploy will fail because the enum values don't exist.
+- **Fix**: Create a new migration that adds `X` and `BLUESKY` to the `AccountType` enum via `ALTER TYPE "AccountType" ADD VALUE IF NOT EXISTS 'X'` and `ALTER TYPE "AccountType" ADD VALUE IF NOT EXISTS 'BLUESKY'`.
+
+#### 16b: Missing `linkClicks` Column on `PostInsight`
+- **Issue**: Feature 8 spec (section 8a) calls for a `linkClicks Int?` column on `PostInsight`. The column does not exist in the schema or any migration. The `clicks` column exists but is semantically different (total clicks vs. link-specific clicks).
+- **Fix**: Either add `linkClicks Int?` to `PostInsight` or document that `clicks` serves as the combined metric and update the plan accordingly.
+
+#### 16c: `platformPostId` on `ContentPost` — Plan vs. Reality
+- **Issue**: The plan describes a single generic `platformPostId String?` on `ContentPost` to store the native post ID for any platform. The actual schema uses three separate fields: `igMediaId`, `linkedinPostId`, `xPostId`. This divergence is not documented.
+- **Fix**: Update the plan's Database Models and Feature 6 sections to reflect the actual per-platform ID approach. If Facebook and Bluesky are added, decide whether to continue with per-platform fields or refactor to a `PostPublication` join table.
+
+#### 16d: Missing `PostPublication` Join Table
+- **Issue**: Feature 7 mentions an optional `PostPublication` join model for tracking multi-platform publication of a single post. It was never created. The current approach (one `ContentPost` → one `SocialMediaAccount`) limits true multi-platform-in-one-go publishing.
+- **Fix**: Decide on the architecture: either implement `PostPublication` (many-to-many between posts and accounts) or formalize the current single-account-per-record approach.
+
+#### 16e: Phase 5 Schema Fields Not Yet Created
+The following fields described in the Phase 5 plan are not present in the schema or any migration and must be created when their respective features are implemented:
+- `ContentPost.originalPostId String?` (self-referential FK for copy-to-draft lineage — Feature 10)
+- `ContentPost.platformOverrides Json?` (per-platform caption/metadata overrides — Feature 12)
+- `SocialMediaAccount.facebookPageId String?` (Feature 11)
+- `SocialMediaAccount.facebookPageName String?` (Feature 11)
+- `SocialMediaAccount.blueskyHandle String?` (Feature 11)
+- `SocialMediaAccount.blueskyDid String?` (Feature 11)
+- `FACEBOOK` value in `AccountType` enum (Feature 11)
+
+---
+
+### Feature 17: Multi-Platform Publishing Gaps
+
+#### 17a: `targetPlatforms` Field Not Used by Scheduler
+- **Issue**: `ContentPost.targetPlatforms` (String[]) is stored in the database but never read by `scheduler/run.ts`. The scheduler publishes to whichever single `SocialMediaAccount` is linked to the post. Users setting multiple target platforms get no actual multi-platform posting.
+- **Fix**: Refactor the scheduler to iterate over `targetPlatforms` and publish to each corresponding account, OR remove the field if multi-platform posting will use the `PostPublication` model instead.
+
+#### 17b: `publish-all` Endpoint Not Documented
+- **Issue**: `/api/content-posts/[id]/publish-all.ts` exists in the codebase and is called from the dashboard (line 4874), but is not listed in the API Endpoints section of the plan.
+- **Fix**: Add documentation for this endpoint in the API Endpoints section.
+
+#### 17c: Bluesky Posting Throws Unimplemented Error
+- **Issue**: `BLUESKY` is in the `AccountType` enum and users could potentially select it, but both `post.ts` (line 98) and `scheduler/run.ts` (line 587) throw `Error('Bluesky posting is not yet implemented')`. There is no guard in the UI preventing users from attempting to post.
+- **Fix**: Either implement Bluesky posting (Feature 11/12 dependency) or add UI-level guards that disable posting for Bluesky accounts until the feature is ready.
+
+---
+
+### Feature 18: Plan Documentation Inconsistencies
+
+#### 18a: AB Testing & AI Refinement Marked "(Planned)" in Endpoints Section
+- **Issue**: The "Phase 4 Endpoints" section lists `POST /api/ai/refine-post` under "AI Refinement **(Planned)**" and `GET/POST /api/insights/ab-tests` under "A/B Testing **(Planned)**". However, Feature 8 is marked **✅ COMPLETED** and both endpoints are fully implemented.
+- **Fix**: Update the Phase 4 Endpoints section to mark both as **✅ Complete**.
+
+#### 18b: Feature 11 Self-Reference Error
+- **Issue**: Feature 11's description says "Extend account management to support Facebook Pages and Bluesky (AT Protocol) so they can be used for publishing in Feature 12." This should reference Feature 12, not itself.
+- **Fix**: Change "Feature 11" to "Feature 12" in the Feature 11 description.
+
+#### 18c: Feature 6 Claims "X Already Exists"
+- **Issue**: Feature 6 description says "Add `LINKEDIN` to the `AccountType` enum (X already exists; Bluesky is deferred)". However, no migration ever added `X` to the enum (see 16a above). The X enum value was added directly to the schema without a corresponding migration.
+- **Fix**: Correct the plan to note that `X` was added to the schema alongside LINKEDIN support, and ensure a migration exists (see 16a).
+
+#### 18d: Phase 4 Status Label
+- **Issue**: Phase 4 header says "🚧 IN PROGRESS" but all three features (6, 7, 8) are marked ✅ COMPLETED.
+- **Fix**: Update Phase 4 header to "✅ COMPLETED".
+
+---
+
+### Feature 19: Unimplemented Phase 5 Features (10–14)
+
+The following Phase 5 features have zero codebase presence and need full implementation:
+
+#### 19a: Feature 10 — Copy Post to Draft
+- **Status**: Not started. No `originalPostId` field, no `copy-to-draft` endpoint, no UI button.
+- **Dependencies**: Schema migration for `originalPostId`.
+- **Note**: Feature 14 depends on this endpoint accepting a `captionOverride` parameter.
+
+#### 19b: Feature 11 — Facebook & Bluesky Account Connection
+- **Status**: Not started. `FACEBOOK` not in enum. No Facebook OAuth endpoints. No Bluesky connect endpoint. No `facebookPageId`, `facebookPageName`, `blueskyHandle`, or `blueskyDid` fields.
+- **Dependencies**: Schema migration for enum + new columns. Facebook Developer App setup. Bluesky App Password flow.
+- **Note**: `BLUESKY` exists in the enum but has no auth, connection, or field support.
+
+#### 19c: Feature 12 — Enhanced Multi-Platform Publishing UI
+- **Status**: Not started. No `platformOverrides` field. No Facebook/Bluesky publisher branches. No per-platform override panels or live preview strip.
+- **Dependencies**: Feature 11 (Facebook & Bluesky connection), schema migration for `platformOverrides`.
+
+#### 19d: Feature 13 — In-Draft AI Post Advisor
+- **Status**: Not started. No `/api/ai/draft-advisor` endpoint.
+- **Note**: The existing `/api/ai/recommendations` endpoint with `caption_review` type provides partial overlap. Feature 13 adds structured JSON recommendations with `applyAction` buttons, per-platform notes, and an overall score — a superset of the existing caption review.
+
+#### 19e: Feature 14 — AI Post Improvement Engine
+- **Status**: Not started. No `/api/ai/improve-post` endpoint.
+- **Note**: The existing `/api/ai/refine-post` endpoint provides single-version refinement. Feature 14 generates N configurable improved versions with tone selection, focus options, and "Save as Draft" integration — a significant expansion beyond the existing refine-post.
+
+---
+
+### Feature 20: Production Polish
+
 - Performance optimization (query optimization, pagination, caching layer)
 - Enhanced error notifications (email/push alerts for failed scheduled posts)
-- Security audit
+- Security audit (token storage, API key exposure, CSRF, input sanitization)
 - Trend charts and sparklines throughout the insights UI
+- Rate limiting on AI endpoints to prevent abuse
+- Proper error boundaries in React components
+- Loading skeletons for data-heavy tabs (Insights, Discovery, Outreach)
+
+---
+
+### Feature 21: Comprehensive Test Suite
+
+A full testing layer covering every feature from Phase 1 through Phase 5. Tests should be organized by feature and type (unit, integration, e2e).
+
+#### 21a: Testing Infrastructure Setup
+- Install and configure test framework: Jest + React Testing Library for unit/integration, Playwright or Cypress for e2e
+- Configure test database (separate Supabase project or local PostgreSQL via Docker)
+- Set up MSW (Mock Service Worker) for mocking Instagram, LinkedIn, X, OpenAI, and Gemini API responses
+- Create shared test fixtures: mock user, mock accounts (Instagram, LinkedIn, X), mock posts, mock insights data
+- Configure CI pipeline to run tests on pull requests
+- Set up code coverage reporting with minimum thresholds
+
+#### 21b: Phase 1 Tests — Core Publishing & Insights
+
+**Feature 1: Publishing Polish & Scheduling**
+- Unit: caption validation logic (2,200 char limit, 30 hashtag limit, edge cases)
+- Unit: carousel URL parsing (comma-separated → array)
+- Integration: `POST /api/content-posts` — create post with valid/invalid captions
+- Integration: `POST /api/social-media-accounts/[id]/post` — publish single image, carousel, video (mocked Instagram API)
+- Integration: `POST /api/scheduler/run` — picks up due scheduled posts, skips future posts, handles publish failures gracefully
+- Integration: igMediaId storage after successful publish
+- Integration: error details stored on failed publish
+- e2e: create post → schedule → verify appears in scheduled list → manual publish → verify status changes
+
+**Feature 2: Post & Account Insights**
+- Unit: insights data normalization and engagement rate calculation
+- Integration: `GET /api/insights/post-insights` — returns stored insights for user's posts only (user isolation)
+- Integration: `POST /api/insights/post-insights` — fetches from Instagram API (mocked), stores correctly
+- Integration: `GET /api/insights/account-insights` — returns stored account metrics
+- Integration: `POST /api/insights/account-insights` — fetches from Instagram API (mocked)
+- Integration: `POST /api/insights/fetch-all` — batch fetch for all accounts, handles partial failures
+- e2e: navigate to Insights tab → click Fetch Insights → verify data appears in cards and table
+
+#### 21c: Phase 2 Tests — Discovery & Intelligence
+
+**Feature 3: Content Discovery**
+- Integration: `GET /api/instagram/search` — hashtag search returns results (mocked Instagram API)
+- Integration: `GET /api/instagram/search` — account search returns profile + posts (mocked)
+- Integration: `POST /api/content-ideas` — save idea from search results
+- Integration: `PUT /api/content-ideas/[id]` — status transitions (NEW → IN_PROGRESS → USED → ARCHIVED)
+- Integration: `GET/POST/DELETE /api/discovery/tracked-hashtags` — CRUD with unique constraint enforcement
+- Integration: `GET/POST/DELETE /api/discovery/tracked-competitors` — CRUD with unique constraint enforcement
+- Integration: `POST /api/discovery/refresh-competitor` — refreshes via Instagram API (mocked)
+- e2e: search hashtag → save as idea → change status → verify in ideas list
+
+**Feature 4: AI-Powered Recommendations**
+- Unit: `performance-analyzer.ts` — aggregation logic with various data shapes (no posts, one post, many posts, multi-platform)
+- Unit: `performance-analyzer.ts` — hashtag analysis, best posting times calculation, content type breakdown
+- Unit: `performance-analyzer.ts` — underperformer detection, decline alert thresholds
+- Integration: `POST /api/ai/recommendations` (mode: general) — returns recommendations with performance context (mocked OpenAI)
+- Integration: `POST /api/ai/recommendations` (mode: caption_review) — returns structured caption feedback
+- Integration: `POST /api/ai/recommendations` (mode: hashtag_suggestions) — returns hashtag recommendations
+- e2e: navigate to Insights → click Get AI Recommendations → verify recommendations display
+
+#### 21d: Phase 3 Tests — Outreach System
+
+**Feature 5: Manual-Assist Outreach**
+- Integration: `GET/POST /api/outreach/contacts` — create contact, list with search, filter by status
+- Integration: `GET/PUT/DELETE /api/outreach/contacts/[id]` — read, update status pipeline, delete
+- Integration: `GET/POST /api/outreach/messages` — create message, list by contact
+- Integration: message auto-timestamps: sentAt set when status → SENT, responseReceivedAt set when status → REPLIED
+- Integration: contact auto-status: contact status → RESPONDED when any message marked REPLIED
+- Integration: `POST /api/outreach/generate-message` — AI generates message for each template type (mocked OpenAI)
+- Integration: `GET /api/outreach/stats` — returns correct funnel counts and response rate
+- Integration: `GET/POST /api/outreach/criteria` — CRUD for search criteria
+- Unit: verify stats API response field names match dashboard expectations (`contactsByStatus`, not `contactStats`)
+- e2e: create contact → generate AI message → copy to clipboard → mark as sent → mark as replied → verify contact status updates → verify stats
+
+#### 21e: Phase 4 Tests — Multi-Platform Expansion & Insights
+
+**Feature 6: LinkedIn & X Account Connection**
+- Integration: `GET /api/auth/linkedin/connect` — generates correct OAuth URL with required scopes
+- Integration: `GET /api/auth/linkedin/callback` — exchanges code, stores encrypted tokens, sets expiry
+- Integration: `GET /api/auth/x/connect` — generates correct PKCE OAuth URL
+- Integration: `GET /api/auth/x/callback` — exchanges code, stores access + refresh tokens
+- Integration: `POST /api/auth/x/refresh` — refreshes expired token, rotates refresh token
+- Unit: token encryption/decryption round-trip
+- Unit: CSRF state parameter validation
+
+**Feature 7: Multi-Platform Publishing**
+- Integration: `POST /api/social-media-accounts/[id]/post` — LinkedIn text post (mocked LinkedIn API)
+- Integration: `POST /api/social-media-accounts/[id]/post` — LinkedIn image post with upload
+- Integration: `POST /api/social-media-accounts/[id]/post` — X tweet (mocked X API v2)
+- Integration: `POST /api/social-media-accounts/[id]/post` — X tweet with media upload
+- Integration: `POST /api/social-media-accounts/[id]/post` — X thread auto-split for >280 chars
+- Integration: `POST /api/scheduler/run` — publishes LinkedIn and X posts, skips expired tokens
+- Integration: `POST /api/content-posts/[id]/publish-all` — multi-account publishing
+- Unit: character limit validation per platform (280 X, 3000 LinkedIn, 2200 Instagram)
+
+**Feature 8: Combined Insights & Refinement**
+- Integration: `GET/POST /api/insights/linkedin-insights` — fetch and store LinkedIn metrics (mocked)
+- Integration: `GET/POST /api/insights/x-insights` — fetch and store X metrics (mocked)
+- Integration: `GET /api/insights/combined-insights` — aggregates across platforms, filters by platform
+- Integration: `POST /api/ai/refine-post` — caption refinement with tone and performance context (mocked OpenAI)
+- Integration: `POST /api/ai/refine-post` — hashtag optimization mode
+- Integration: `POST /api/ai/refine-post` — media suggestion mode
+- Integration: `GET/POST /api/insights/ab-tests` — create A/B pair, retrieve with enriched insight data
+- Integration: `GET /api/insights/lint-caption` — returns score and grade for caption
+- Integration: `GET /api/insights/best-time` — returns optimal posting hour based on historical data
+- Unit: `performance-analyzer.ts` — cross-platform stats aggregation, platform comparison
+- e2e: navigate to Combined Insights → view cross-platform table → filter by platform → create A/B test → compare results
+
+#### 21f: Phase 5 Tests — AI Content Generation
+
+**Feature 9: Advanced AI Content Generation**
+- Integration: `GET /api/user/settings` — returns brand voice fields
+- Integration: `POST /api/user/settings` — saves brand voice (tone, audience, personality, key phrases, avoid phrases, examples)
+- Integration: `POST /api/ai/generate-caption` — generates caption conforming to brand voice (mocked OpenAI and Gemini)
+- Integration: `POST /api/ai/generate-images` — generates images with style preset and aspect ratio (mocked DALL-E 3 and Gemini)
+- Unit: brand voice prompt injection logic in `openai-client.ts` and `gemini-client.ts`
+- Unit: style preset → DALL-E 3 parameter mapping
+- Unit: aspect ratio → image dimension mapping
+- e2e: set brand voice in settings → generate caption → verify tone matches → generate image with style → verify parameters sent
+
+**Features 10–14** (tests to be written when features are implemented):
+- Feature 10: copy-to-draft endpoint creates draft with originalPostId linkage, accepts captionOverride
+- Feature 11: Facebook OAuth flow, Bluesky session creation, token storage
+- Feature 12: platform override storage/retrieval, Facebook and Bluesky publishing (mocked)
+- Feature 13: draft-advisor structured response parsing, apply-action mechanics
+- Feature 14: improve-post multi-version generation, save-all-as-drafts integration
+
+#### 21g: Cross-Cutting Tests
+
+**Authentication & Authorization**
+- All API endpoints reject unauthenticated requests (401)
+- All API endpoints enforce user isolation (user A cannot access user B's data)
+- Token encryption is applied consistently across all platforms
+
+**Scheduler Resilience**
+- Scheduler handles mixed success/failure across multiple posts
+- Scheduler skips posts with expired platform tokens and logs appropriately
+- Scheduler handles concurrent execution gracefully (idempotency)
+
+**Error Handling**
+- API endpoints return proper HTTP status codes (400 for validation, 401 for auth, 404 for not found, 500 for server errors)
+- AI endpoints handle malformed AI responses gracefully (fallback to plain text)
+- External API failures (Instagram, LinkedIn, X) are caught and surfaced to the user
 
 ---
 
@@ -840,12 +1098,15 @@ From the Insights tab, when viewing a high or low performing post, allow users t
 - `GET/POST /api/insights/linkedin-insights` — stored/fresh LinkedIn metrics
 - `GET/POST /api/insights/x-insights` — stored/fresh X metrics
 
-**AI Refinement** (Planned)
+**AI Refinement** ✅ Complete
 - `POST /api/ai/refine-post` — AI caption/tag/timing refinement with performance context
 
-**A/B Testing** (Planned)
+**A/B Testing** ✅ Complete
 - `GET/POST /api/insights/ab-tests` — manage A/B test pairs
 - `GET /api/insights/ab-tests/[id]` — comparison results for a pair
+
+**Multi-Account Publishing** (undocumented, exists in codebase)
+- `POST /api/content-posts/[id]/publish-all` — publish a post to all targeted platform accounts
 
 ### Phase 5 Endpoints (Planned)
 **Copy to Draft**
