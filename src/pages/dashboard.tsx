@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/components/ui/use-toast";
-import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings } from "lucide-react";
+import { Instagram, Plus, Calendar, Image, Trash2, Edit, RefreshCw, Settings, Search, UserPlus } from "lucide-react";
 import { useRouter } from "next/router";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AIContentGenerator from "@/components/AIContentGenerator";
@@ -266,6 +266,15 @@ export default function Dashboard() {
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
   const [messageTemplateType, setMessageTemplateType] = useState('introduction');
   const [customMessageInstructions, setCustomMessageInstructions] = useState('');
+
+  // Instagram prospect search state
+  const [igProspectUsernames, setIgProspectUsernames] = useState('');
+  const [igProspectNiche, setIgProspectNiche] = useState('');
+  const [igProspectFollowerMin, setIgProspectFollowerMin] = useState('');
+  const [igProspectFollowerMax, setIgProspectFollowerMax] = useState('');
+  const [igProspectResults, setIgProspectResults] = useState<any[]>([]);
+  const [igProspectLoading, setIgProspectLoading] = useState(false);
+  const [igProspectError, setIgProspectError] = useState('');
 
   // Show toast messages from OAuth redirects (error or success query params)
   useEffect(() => {
@@ -1062,6 +1071,64 @@ export default function Dashboard() {
       });
       setOutreachMessages(outreachMessages.filter(m => m.id !== messageId));
     } catch { /* silent */ }
+  };
+
+  const searchIGProspects = async () => {
+    if (!igProspectUsernames.trim()) return;
+    setIgProspectLoading(true);
+    setIgProspectError('');
+    setIgProspectResults([]);
+    try {
+      const params = new URLSearchParams({ usernames: igProspectUsernames.trim() });
+      if (igProspectNiche.trim()) params.set('niche', igProspectNiche.trim());
+      if (igProspectFollowerMin.trim()) params.set('followerMin', igProspectFollowerMin.trim());
+      if (igProspectFollowerMax.trim()) params.set('followerMax', igProspectFollowerMax.trim());
+      const res = await fetch(`/api/outreach/instagram-search?${params}`, { credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) {
+        setIgProspectError(data.error || 'Search failed');
+        return;
+      }
+      setIgProspectResults(data.results || []);
+      if ((data.results || []).length === 0) setIgProspectError('No matching accounts found. Check the username(s) and try again.');
+    } catch {
+      setIgProspectError('Search failed. Please try again.');
+    } finally {
+      setIgProspectLoading(false);
+    }
+  };
+
+  const addIGProspectAsContact = async (prospect: any) => {
+    try {
+      const res = await fetch('/api/outreach/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          igUsername: prospect.username,
+          displayName: prospect.name || '',
+          bio: prospect.bio || '',
+          followerCount: prospect.followers || null,
+          engagementRate: prospect.engagementRate || null,
+          niche: igProspectNiche.trim() || '',
+          notes: prospect.aiSummary ? `AI Analysis: ${prospect.aiSummary}` : '',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: 'Contact added', description: `@${prospect.username} added to your outreach list` });
+        fetchContacts(contactFilter, contactSearch);
+        fetchOutreachStats();
+        // Mark the result as added
+        setIgProspectResults(prev =>
+          prev.map(r => r.username === prospect.username ? { ...r, added: true } : r)
+        );
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: data.error || 'Failed to add contact' });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to add contact' });
+    }
   };
 
   const handleGenerateInspiredContent = async (post: any) => {
@@ -4678,6 +4745,162 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+
+              {/* Find Instagram Prospects */}
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="text-base">Find Instagram Prospects</CardTitle>
+                  <CardDescription>
+                    Look up Instagram accounts by username to evaluate them for cold outreach. Enter one username or a comma-separated list (up to 10). Requires a connected Instagram Business or Creator account.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3">
+                    {/* Username input */}
+                    <div className="grid gap-1">
+                      <Label>Instagram Username(s)</Label>
+                      <Textarea
+                        placeholder="username1, username2, username3"
+                        value={igProspectUsernames}
+                        onChange={e => setIgProspectUsernames(e.target.value)}
+                        className="min-h-[60px] text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">Separate multiple usernames with commas. @ prefix is optional.</p>
+                    </div>
+
+                    {/* Optional filters */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="grid gap-1">
+                        <Label>Target Niche</Label>
+                        <Input
+                          placeholder="e.g. fitness"
+                          value={igProspectNiche}
+                          onChange={e => setIgProspectNiche(e.target.value)}
+                        />
+                      </div>
+                      <div className="grid gap-1">
+                        <Label>Min Followers</Label>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 5000"
+                          value={igProspectFollowerMin}
+                          onChange={e => setIgProspectFollowerMin(e.target.value)}
+                        />
+                      </div>
+                      <div className="grid gap-1">
+                        <Label>Max Followers</Label>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 100000"
+                          value={igProspectFollowerMax}
+                          onChange={e => setIgProspectFollowerMax(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={searchIGProspects}
+                      disabled={igProspectLoading || !igProspectUsernames.trim()}
+                      className="w-full sm:w-auto"
+                    >
+                      {igProspectLoading
+                        ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Analyzing...</>
+                        : <><Search className="mr-2 h-4 w-4" />Analyze Accounts</>
+                      }
+                    </Button>
+
+                    {igProspectError && (
+                      <p className="text-sm text-destructive">{igProspectError}</p>
+                    )}
+                  </div>
+
+                  {/* Results */}
+                  {igProspectResults.length > 0 && (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-sm font-medium">{igProspectResults.length} account{igProspectResults.length !== 1 ? 's' : ''} analyzed</p>
+                      {igProspectResults.map((prospect: any) => (
+                        <div key={prospect.username} className="rounded-lg border p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-sm">@{prospect.username}</span>
+                                {prospect.name && <span className="text-sm text-muted-foreground">{prospect.name}</span>}
+                                {/* Score badge */}
+                                <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${
+                                  prospect.score >= 7 ? 'bg-green-100 text-green-800' :
+                                  prospect.score >= 4 ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  Score {prospect.score}/10
+                                </span>
+                              </div>
+
+                              {/* Stats row */}
+                              <div className="flex flex-wrap gap-3 mt-1 text-xs text-muted-foreground">
+                                <span>{prospect.followers?.toLocaleString() || 0} followers</span>
+                                {prospect.engagementRate !== null && (
+                                  <span>{prospect.engagementRate}% engagement</span>
+                                )}
+                                {prospect.mediaCount > 0 && <span>{prospect.mediaCount} posts</span>}
+                              </div>
+
+                              {/* Bio */}
+                              {prospect.bio && (
+                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{prospect.bio}</p>
+                              )}
+
+                              {/* AI analysis */}
+                              {prospect.aiSummary && (
+                                <p className="text-xs mt-1.5 text-foreground/80 italic">{prospect.aiSummary}</p>
+                              )}
+                              {prospect.aiSuggestedAngle && (
+                                <p className="text-xs mt-0.5 text-blue-700 dark:text-blue-400">
+                                  Angle: {prospect.aiSuggestedAngle}
+                                </p>
+                              )}
+
+                              {/* Recent post captions preview */}
+                              {prospect.recentPosts?.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {prospect.recentPosts.slice(0, 2).map((post: any, i: number) => (
+                                    post.caption && (
+                                      <span key={i} className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[200px]">
+                                        {post.caption.slice(0, 50)}{post.caption.length > 50 ? '…' : ''}
+                                      </span>
+                                    )
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex flex-col gap-1 shrink-0">
+                              <Button
+                                size="sm"
+                                variant={prospect.added ? 'outline' : 'default'}
+                                disabled={prospect.added}
+                                onClick={() => addIGProspectAsContact(prospect)}
+                                className="h-8 text-xs"
+                              >
+                                <UserPlus className="h-3 w-3 mr-1" />
+                                {prospect.added ? 'Added' : 'Add to Contacts'}
+                              </Button>
+                              <a
+                                href={`https://www.instagram.com/${prospect.username}/`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-center text-muted-foreground hover:underline"
+                              >
+                                View profile
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Search Criteria Section */}
               <Card className="mt-6">
