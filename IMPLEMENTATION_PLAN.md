@@ -1,7 +1,7 @@
 # Social Media Tool (InstaCreate) - Implementation Plan
 
 **Last Updated**: April 9, 2026
-**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 audit complete — bugs, gaps, and test plan documented.
+**Status**: Phases 1–4 Implemented (Features 1–8 Complete), Phase 5 Feature 9 Complete, Features 10–14 Not Started. Phase 6 in progress — Feature 15 Complete.
 
 ---
 
@@ -747,20 +747,20 @@ Phase 6 consolidates all issues, inconsistencies, and gaps discovered during a c
 
 ---
 
-### Feature 15: Critical Bugs & Build Issues
+### Feature 15: Critical Bugs & Build Issues ✅ COMPLETED
 
-#### 15a: Prisma Client Build Error (CRITICAL)
+#### 15a: Prisma Client Build Error (CRITICAL) ✅
 - **Issue**: Production builds fail with `Module not found: Can't resolve '.prisma/client/index-browser'`. Import chain: `prisma.ts → logger.ts → LogsViewer.tsx → dashboard.tsx`.
 - **Impact**: Blocks all production deployments.
-- **Fix**: Ensure `prisma generate` runs as part of the build pipeline (e.g., `"build": "prisma generate && next build"` in `package.json`). Verify `.prisma/client` is not in `.gitignore` or add a `postinstall` script.
+- **Fix**: Updated `package.json` build script to `"prisma generate && next build"`.
 
-#### 15b: Outreach Stats Field Name Mismatch (BUG)
+#### 15b: Outreach Stats Field Name Mismatch (BUG) ✅
 - **Issue**: `/api/outreach/stats.ts` returns `{ contactStats, messageStats }` but `dashboard.tsx` (lines 4418–4421) reads `outreachStats.contactsByStatus.PROSPECT`, etc. All outreach funnel metrics display as **0** in the UI.
-- **Fix**: Rename `contactStats` → `contactsByStatus` and `messageStats` → `messagesByStatus` in the stats API response (or update the dashboard references).
+- **Fix**: Renamed response keys to `contactsByStatus` and `messagesByStatus` in `stats.ts`.
 
-#### 15c: next.config.mjs Warnings
+#### 15c: next.config.mjs Warnings ✅
 - **Issue**: Build output shows `Invalid next.config.mjs options detected: Unrecognized key(s) in object: 'turbopack', 'api'`.
-- **Fix**: Remove the empty `turbopack: {}` key and move `api.bodyParser` config to the correct location or verify Next.js version compatibility.
+- **Fix**: Removed `turbopack: {}` and the top-level `api` key from `next.config.mjs`. The upload route already has its own per-route `bodyParser: false` config.
 
 ---
 
