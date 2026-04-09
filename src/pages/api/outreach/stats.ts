@@ -52,8 +52,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const responseRate = denominator > 0 ? messageStats.REPLIED / denominator : 0;
 
     return res.status(200).json({
-      contactStats,
-      messageStats,
+      contactsByStatus: contactStats,
+      messagesByStatus: messageStats,
       responseRate: Math.round(responseRate * 10000) / 10000,
       messagesSentThisWeek,
     });
