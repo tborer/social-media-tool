@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { accountId, fetchInsights = true, limit = 50 } = req.body;
+  const { accountId, fetchInsights = true, limit = 25 } = req.body;
 
   if (!accountId || typeof accountId !== 'string') {
     return res.status(400).json({ error: 'accountId is required' });
@@ -143,8 +143,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Fetch insights for the post
       if (fetchInsights && postId) {
         try {
+          // Reels don't support the `impressions` metric – use a reduced set
+          const isReel = mediaType === 'REELS';
+          const insightMetrics = isReel
+            ? 'reach,likes,comments,shares,saved,plays'
+            : 'impressions,reach,likes,comments,shares,saved';
+
           const piRes = await fetch(
-            `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=impressions,reach,likes,comments,shares,saved&access_token=${accessToken}`
+            `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=${insightMetrics}&access_token=${accessToken}`
           );
 
           if (!piRes.ok) {

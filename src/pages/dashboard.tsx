@@ -232,6 +232,7 @@ export default function Dashboard() {
   const [isRefining, setIsRefining] = useState(false);
   const [refinePostCount, setRefinePostCount] = useState<number>(10);
   const [refinePostSort, setRefinePostSort] = useState<string>('engagement');
+  const [refinePostSortDir, setRefinePostSortDir] = useState<'desc' | 'asc'>('desc');
   // A/B tests (8e)
   const [abTests, setAbTests] = useState<any[]>([]);
   const [isLoadingABTests, setIsLoadingABTests] = useState(false);
@@ -1332,7 +1333,7 @@ export default function Dashboard() {
   const [isSyncingIgPosts, setIsSyncingIgPosts] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
 
-  const syncIgPosts = async (postLimit = 25) => {
+  const syncIgPosts = async (postLimit = refinePostCount) => {
     const igAccount = accounts.find((a: SocialMediaAccount) => a.accountType === 'INSTAGRAM');
     if (!igAccount) {
       toast({ variant: "destructive", title: "No Instagram account", description: "Connect an Instagram account first." });
@@ -3671,6 +3672,16 @@ export default function Dashboard() {
                             <option value="date">Date</option>
                           </select>
                         </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                            value={refinePostSortDir}
+                            onChange={(e) => setRefinePostSortDir(e.target.value as 'desc' | 'asc')}
+                          >
+                            <option value="desc">{refinePostSort === 'date' ? 'Newest first' : 'High → Low'}</option>
+                            <option value="asc">{refinePostSort === 'date' ? 'Oldest first' : 'Low → High'}</option>
+                          </select>
+                        </div>
                         <div className="flex items-center gap-2 ml-auto">
                           <span className="text-xs text-muted-foreground">
                             {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length ?? 0} posts with insights
@@ -3699,10 +3710,10 @@ export default function Dashboard() {
                                 if (refinePostSort === 'engagement') return ins.engagement ?? 0;
                                 if (refinePostSort === 'likes') return ins.likes ?? 0;
                                 if (refinePostSort === 'reach') return ins.reach ?? 0;
-                                if (refinePostSort === 'date') return new Date(p.updatedAt).getTime();
+                                if (refinePostSort === 'date') return new Date(p.scheduledFor ?? p.updatedAt).getTime();
                                 return 0;
                               };
-                              return getVal(b) - getVal(a);
+                              return refinePostSortDir === 'asc' ? getVal(a) - getVal(b) : getVal(b) - getVal(a);
                             })
                             .slice(0, refinePostCount)
                             .map((post: any) => {
@@ -3760,7 +3771,7 @@ export default function Dashboard() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => syncIgPosts(25)}
+                            onClick={() => syncIgPosts(refinePostCount)}
                             disabled={isSyncingIgPosts}
                           >
                             {isSyncingIgPosts ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Syncing...</> : 'Sync Instagram Posts'}
