@@ -171,7 +171,11 @@ export async function getUserInfo(accessToken: string): Promise<LinkedInUserInfo
   logger.info('Fetching LinkedIn member profile from /v2/me');
 
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'LinkedIn-Version': '202411',
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
   });
 
   if (!response.ok) {
