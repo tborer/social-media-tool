@@ -749,18 +749,18 @@ Phase 6 consolidates all issues, inconsistencies, and gaps discovered during a c
 
 ### Feature 15: Critical Bugs & Build Issues ✅ COMPLETED
 
-#### 15a: Prisma Client Build Error (CRITICAL) ✅
-- **Issue**: Production builds fail with `Module not found: Can't resolve '.prisma/client/index-browser'`. Import chain: `prisma.ts → logger.ts → LogsViewer.tsx → dashboard.tsx`.
-- **Impact**: Blocks all production deployments.
-- **Fix**: Updated `package.json` build script to `"prisma generate && next build"`.
+#### 15a: Prisma Client Build Error (CRITICAL) ✅ FIXED
+- **Issue**: Production builds failed with `Module not found: Can't resolve '.prisma/client/index-browser'`. Import chain: `prisma.ts → logger.ts → LogsViewer.tsx → dashboard.tsx`.
+- **Impact**: Blocked all production deployments.
+- **Resolution**: Added `"postinstall": "prisma generate"` script to `package.json`. This ensures the Prisma client is generated after every `npm install` / `pnpm install`, including in CI/CD and Vercel deployments.
 
-#### 15b: Outreach Stats Field Name Mismatch (BUG) ✅
-- **Issue**: `/api/outreach/stats.ts` returns `{ contactStats, messageStats }` but `dashboard.tsx` (lines 4418–4421) reads `outreachStats.contactsByStatus.PROSPECT`, etc. All outreach funnel metrics display as **0** in the UI.
-- **Fix**: Renamed response keys to `contactsByStatus` and `messagesByStatus` in `stats.ts`.
+#### 15b: Outreach Stats Field Name Mismatch (BUG) ✅ FIXED
+- **Issue**: `/api/outreach/stats.ts` returned `{ contactStats, messageStats }` but `dashboard.tsx` (lines 4418–4421) read `outreachStats.contactsByStatus.PROSPECT`, etc. All outreach funnel metrics displayed as **0** in the UI.
+- **Resolution**: Renamed API response keys from `contactStats` → `contactsByStatus` and `messageStats` → `messagesByStatus` in `/api/outreach/stats.ts` to match the dashboard's expectations.
 
-#### 15c: next.config.mjs Warnings ✅
-- **Issue**: Build output shows `Invalid next.config.mjs options detected: Unrecognized key(s) in object: 'turbopack', 'api'`.
-- **Fix**: Removed `turbopack: {}` and the top-level `api` key from `next.config.mjs`. The upload route already has its own per-route `bodyParser: false` config.
+#### 15c: next.config.mjs Warnings ✅ FIXED
+- **Issue**: Build output showed `Invalid next.config.mjs options detected: Unrecognized key(s) in object: 'turbopack', 'api'`.
+- **Resolution**: Removed the empty `turbopack: {}` key and the invalid top-level `api.bodyParser` config from `next.config.mjs`. (In Next.js Pages Router, body parser size is configured per-route, not globally.)
 
 ---
 
