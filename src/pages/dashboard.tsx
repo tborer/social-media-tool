@@ -612,10 +612,12 @@ export default function Dashboard() {
 
       // Helper to POST one content-post record
       const createOnePost = async (accountId: string | null, captionOverride?: string) => {
+        const accountForPost = accountId ? accounts.find(a => a.id === accountId) : null;
         const body = {
           ...basePostData,
           ...(captionOverride ? { caption: captionOverride } : {}),
           ...(accountId ? { socialMediaAccountId: accountId } : {}),
+          targetPlatforms: accountForPost ? [accountForPost.accountType] : [],
         };
         const response = await fetch('/api/content-posts', {
           method: 'POST',
@@ -4817,15 +4819,18 @@ export default function Dashboard() {
                         : account.accountType === 'BLUESKY' ? 'Bluesky'
                         : 'X';
                       const isChecked = publishDialogAccountIds.includes(account.id);
+                      const isUnsupported = account.accountType === 'BLUESKY';
                       return (
                         <label
                           key={account.id}
-                          className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                          className={`flex items-center gap-3 px-3 py-2 ${isUnsupported ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-muted/50 transition-colors'}`}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
+                            disabled={isUnsupported}
                             onChange={(e) => {
+                              if (isUnsupported) return;
                               setPublishDialogAccountIds(e.target.checked
                                 ? [...publishDialogAccountIds, account.id]
                                 : publishDialogAccountIds.filter(id => id !== account.id));
@@ -4834,6 +4839,7 @@ export default function Dashboard() {
                           />
                           <span className="text-sm font-medium">{account.username}</span>
                           <span className="text-xs text-muted-foreground ml-auto">{platformLabel}</span>
+                          {isUnsupported && <span className="text-xs text-amber-500">Coming soon</span>}
                         </label>
                       );
                     })}
