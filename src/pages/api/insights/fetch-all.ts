@@ -190,41 +190,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         for (const post of posts) {
           summary.postsProcessed++;
           try {
-            // Determine IG media type to pick the right metrics (Reels don't support `impressions`)
-            let igMediaType = '';
+            // Determine IG media product type to pick the right metrics
+            // (Reels/Stories don't support `impressions`)
+            let mediaProductType = '';
             try {
               const typeRes = await fetch(
-                `${INSTAGRAM_GRAPH_API}/${post.igMediaId}?fields=media_type&access_token=${accessToken}`
+                `${INSTAGRAM_GRAPH_API}/${post.igMediaId}?fields=media_product_type&access_token=${accessToken}`
               );
               if (typeRes.ok) {
                 const typeData = await typeRes.json();
-                igMediaType = typeData.media_type ?? '';
+                mediaProductType = typeData.media_product_type ?? '';
               }
             } catch {
               // Non-fatal
             }
-            const isReel = igMediaType === 'REELS';
-            const insightMetrics = isReel
+            const isReelOrStory = mediaProductType === 'REELS' || mediaProductType === 'STORY';
+            const primaryMetrics = isReelOrStory
               ? 'reach,likes,comments,shares,saved,plays'
               : 'impressions,reach,likes,comments,shares,saved';
 
-            const piRes = await fetch(
-              `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${insightMetrics}&access_token=${accessToken}`
+            let piRes = await fetch(
+              `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${primaryMetrics}&access_token=${accessToken}`
             );
-            if (!piRes.ok) {
-              const errData = await piRes.json();
-              const msg = `IG post insights failed for ${post.id}: ${JSON.stringify(errData)}`;
-              logger.error(msg, { userId });
-              summary.errors.push(msg);
-              continue;
+
+            // Fallback: if 400 about unsupported impressions, retry without it
+            if (!piRes.ok && piRes.status === 400 && !isReelOrStory) {
+              const errData = await piRes.json().catch(() => ({}));
+              const errMsg = errData?.error?.message ?? '';
+              if (errMsg.includes('impressions')) {
+                piRes = await fetch(
+                  `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=reach,likes,comments,shares,saved&access_token=${accessToken}`
+                );
+              }
             }
 
-            const piData = await piRes.json();
             const metrics: Record<string, number> = {};
-            for (const item of piData.data || []) {
-              metrics[item.name] = item.values?.[0]?.value ?? 0;
+            if (piRes.ok) {
+              const piData = await piRes.json();
+              for (const item of piData.data || []) {
+                metrics[item.name] = item.values?.[0]?.value ?? 0;
+              }
             }
 
+            // Always fetch basic fields as fallback
             const fieldsRes = await fetch(
               `${INSTAGRAM_GRAPH_API}/${post.igMediaId}?fields=like_count,comments_count&access_token=${accessToken}`
             );

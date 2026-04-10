@@ -62,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Fetch the user's IG media list
     const clampedLimit = Math.min(Math.max(limit, 1), 100);
-    const mediaUrl = `${INSTAGRAM_GRAPH_API}/me/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,permalink&limit=${clampedLimit}&access_token=${accessToken}`;
+    const mediaUrl = `${INSTAGRAM_GRAPH_API}/me/media?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink&limit=${clampedLimit}&access_token=${accessToken}`;
     logger.info('Sync IG posts – fetching media list', { userId: user.id, accountId, url: mediaUrl.replace(accessToken, '***') });
 
     const mediaRes = await fetch(mediaUrl);
@@ -96,15 +96,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const igMediaId = item.id as string;
       const caption = (item.caption as string) ?? '';
       const mediaType = (item.media_type as string) ?? 'IMAGE';
+      const mediaProductType = (item.media_product_type as string) ?? '';
       const imageUrl = (item.media_url as string) ?? null;
       const timestamp = item.timestamp ? new Date(item.timestamp) : new Date();
 
       let contentType: 'IMAGE' | 'VIDEO' | 'BLOG_POST' = 'IMAGE';
-      if (mediaType === 'VIDEO' || mediaType === 'REELS') {
+      if (mediaType === 'VIDEO') {
         contentType = 'VIDEO';
       } else if (mediaType === 'CAROUSEL_ALBUM') {
         contentType = 'IMAGE';
       }
+
+      // media_product_type is FEED, REELS, STORY, or AD
+      // Reels and Stories don't support the `impressions` metric
+      const isReelOrStory = mediaProductType === 'REELS' || mediaProductType === 'STORY';
 
       let postId = existingMap.get(igMediaId);
       const isNew = !postId;
@@ -143,31 +148,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Fetch insights for the post
       if (fetchInsights && postId) {
         try {
-          // Reels don't support the `impressions` metric – use a reduced set
-          const isReel = mediaType === 'REELS';
-          const insightMetrics = isReel
+          // Reels/Stories don't support `impressions` — use a reduced metric set.
+          // If the first attempt fails with a 400 about unsupported metrics, retry
+          // without `impressions` as a safety net.
+          const primaryMetrics = isReelOrStory
             ? 'reach,likes,comments,shares,saved,plays'
             : 'impressions,reach,likes,comments,shares,saved';
 
-          const piRes = await fetch(
-            `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=${insightMetrics}&access_token=${accessToken}`
+          let piRes = await fetch(
+            `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=${primaryMetrics}&access_token=${accessToken}`
           );
 
-          if (!piRes.ok) {
+          // Fallback: if the full metric set fails with 400, retry without impressions
+          if (!piRes.ok && piRes.status === 400 && !isReelOrStory) {
             const errData = await piRes.json().catch(() => ({}));
-            const msg = `Insights fetch failed for ${igMediaId} (HTTP ${piRes.status}): ${JSON.stringify(errData).slice(0, 200)}`;
-            logger.warn(msg, { userId: user.id, postId });
-            summary.errors.push(msg);
-            continue;
+            const errMsg = errData?.error?.message ?? '';
+            if (errMsg.includes('impressions')) {
+              logger.info(`Sync IG posts – retrying ${igMediaId} without impressions metric`, { userId: user.id });
+              piRes = await fetch(
+                `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=reach,likes,comments,shares,saved&access_token=${accessToken}`
+              );
+            } else {
+              // Non-impressions 400 error — log and fall through to basic fields only
+              const msg = `Insights fetch failed for ${igMediaId} (HTTP ${piRes.status}): ${JSON.stringify(errData).slice(0, 200)}`;
+              logger.warn(msg, { userId: user.id, postId });
+              summary.errors.push(msg);
+            }
           }
 
-          const piData = await piRes.json();
           const metrics: Record<string, number> = {};
-          for (const m of piData.data || []) {
-            metrics[m.name] = m.values?.[0]?.value ?? 0;
+          if (piRes.ok) {
+            const piData = await piRes.json();
+            for (const m of piData.data || []) {
+              metrics[m.name] = m.values?.[0]?.value ?? 0;
+            }
           }
 
-          // Also fetch basic fields for like_count/comments_count fallback
+          // Always fetch basic fields for like_count/comments_count fallback
           const fieldsRes = await fetch(
             `${INSTAGRAM_GRAPH_API}/${igMediaId}?fields=like_count,comments_count&access_token=${accessToken}`
           );
@@ -185,6 +202,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const saves = metrics.saved ?? 0;
           const engagement = reach > 0 ? ((likes + comments + shares + saves) / reach) * 100 : 0;
 
+          // Create an insight record even when advanced metrics are unavailable —
+          // the basic like/comment counts from the fields fallback still have value
+          // and allow the post to appear in the refinement UI.
           await prisma.postInsight.create({
             data: {
               postId: postId!,

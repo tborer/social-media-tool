@@ -114,30 +114,45 @@ async function fetchPostInsights(req: NextApiRequest, res: NextApiResponse, user
       });
     }
 
-    // Determine the IG media type so we can request the right metrics.
-    // Reels don't support the `impressions` metric.
-    let igMediaType = '';
+    // Determine IG media product type to pick the right metrics.
+    // Reels/Stories don't support the `impressions` metric.
+    let mediaProductType = '';
     try {
       const typeRes = await fetch(
-        `${INSTAGRAM_GRAPH_API}/${post.igMediaId}?fields=media_type&access_token=${accessToken}`
+        `${INSTAGRAM_GRAPH_API}/${post.igMediaId}?fields=media_product_type&access_token=${accessToken}`
       );
       if (typeRes.ok) {
         const typeData = await typeRes.json();
-        igMediaType = typeData.media_type ?? '';
+        mediaProductType = typeData.media_product_type ?? '';
       }
     } catch {
       // Non-fatal – fall back to the full metric set
     }
 
-    const isReel = igMediaType === 'REELS';
-    const insightMetrics = isReel
+    const isReelOrStory = mediaProductType === 'REELS' || mediaProductType === 'STORY';
+    const primaryMetrics = isReelOrStory
       ? 'reach,likes,comments,shares,saved,plays'
       : 'impressions,reach,likes,comments,shares,saved';
 
     // Fetch insights from Instagram Graph API
-    const insightsResponse = await fetch(
-      `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${insightMetrics}&access_token=${accessToken}`
+    let insightsResponse = await fetch(
+      `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${primaryMetrics}&access_token=${accessToken}`
     );
+
+    // Fallback: if 400 about unsupported impressions, retry without it
+    if (!insightsResponse.ok && insightsResponse.status === 400 && !isReelOrStory) {
+      const errorData = await insightsResponse.json().catch(() => ({}));
+      const errMsg = errorData?.error?.message ?? '';
+      if (errMsg.includes('impressions')) {
+        logger.info(`Retrying insights for ${post.igMediaId} without impressions metric`, { userId, postId });
+        insightsResponse = await fetch(
+          `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=reach,likes,comments,shares,saved&access_token=${accessToken}`
+        );
+      } else {
+        logger.error('Instagram insights API error:', errorData, { userId, postId, status: insightsResponse.status });
+        return sendInstagramError(res, insightsResponse.status, errorData);
+      }
+    }
 
     if (!insightsResponse.ok) {
       const errorData = await insightsResponse.json().catch(() => ({}));
