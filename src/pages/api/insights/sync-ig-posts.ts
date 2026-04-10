@@ -108,8 +108,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // media_product_type is FEED, REELS, STORY, or AD
-      // Reels and Stories don't support the `impressions` metric
-      const isReelOrStory = mediaProductType === 'REELS' || mediaProductType === 'STORY';
+      // Meta deprecated `impressions` and `plays` on Apr 21, 2024, replacing both
+      // with the new `views` metric. Stories only support a reduced metric set.
+      const isStory = mediaProductType === 'STORY';
+      const isReel = mediaProductType === 'REELS';
 
       let postId = existingMap.get(igMediaId);
       const isNew = !postId;
@@ -148,32 +150,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Fetch insights for the post
       if (fetchInsights && postId) {
         try {
-          // Reels/Stories don't support `impressions` — use a reduced metric set.
-          // If the first attempt fails with a 400 about unsupported metrics, retry
-          // without `impressions` as a safety net.
-          const primaryMetrics = isReelOrStory
-            ? 'reach,likes,comments,shares,saved,plays'
-            : 'impressions,reach,likes,comments,shares,saved';
+          // Meta API v22 metric names (post-April 2024):
+          //   - Feed/Reels: reach, likes, comments, shares, saved, views, total_interactions
+          //   - Stories: reach, views, shares, replies, total_interactions (no likes/comments)
+          // `impressions` and `plays` are deprecated — `views` replaces both.
+          const primaryMetrics = isStory
+            ? 'reach,views,shares,total_interactions,replies'
+            : 'reach,likes,comments,shares,saved,views,total_interactions';
 
           let piRes = await fetch(
             `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=${primaryMetrics}&access_token=${accessToken}`
           );
 
-          // Fallback: if the full metric set fails with 400, retry without impressions
-          if (!piRes.ok && piRes.status === 400 && !isReelOrStory) {
+          // Fallback: if we get a 400 (e.g. very old media that predates `views`),
+          // try a minimal safe set and, if that also fails, try the legacy set.
+          let insightsErrorMsg = '';
+          if (!piRes.ok && piRes.status === 400) {
             const errData = await piRes.json().catch(() => ({}));
-            const errMsg = errData?.error?.message ?? '';
-            if (errMsg.includes('impressions')) {
-              logger.info(`Sync IG posts – retrying ${igMediaId} without impressions metric`, { userId: user.id });
-              piRes = await fetch(
-                `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=reach,likes,comments,shares,saved&access_token=${accessToken}`
-              );
-            } else {
-              // Non-impressions 400 error — log and fall through to basic fields only
-              const msg = `Insights fetch failed for ${igMediaId} (HTTP ${piRes.status}): ${JSON.stringify(errData).slice(0, 200)}`;
-              logger.warn(msg, { userId: user.id, postId });
-              summary.errors.push(msg);
-            }
+            insightsErrorMsg = errData?.error?.message ?? `HTTP ${piRes.status}`;
+            logger.warn(`Sync IG posts – metric error for ${igMediaId}: ${insightsErrorMsg} — retrying with minimal set`, { userId: user.id });
+            const minimalMetrics = isStory
+              ? 'reach,shares'
+              : 'reach,likes,comments,shares,saved';
+            piRes = await fetch(
+              `${INSTAGRAM_GRAPH_API}/${igMediaId}/insights?metric=${minimalMetrics}&access_token=${accessToken}`
+            );
           }
 
           const metrics: Record<string, number> = {};
@@ -182,6 +183,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             for (const m of piData.data || []) {
               metrics[m.name] = m.values?.[0]?.value ?? 0;
             }
+          } else {
+            // Surface the error to the user via the summary so they can see why
+            // insights are empty. Previously this silently wrote a zero row.
+            const errData = await piRes.json().catch(() => ({}));
+            const code = errData?.error?.code;
+            const errMsg = errData?.error?.message ?? insightsErrorMsg ?? `HTTP ${piRes.status}`;
+            const msg = `Insights unavailable for ${igMediaId} (code ${code ?? '?'}, HTTP ${piRes.status}): ${errMsg}`;
+            logger.error(msg, { userId: user.id, postId });
+            summary.errors.push(msg);
           }
 
           // Always fetch basic fields for like_count/comments_count fallback
@@ -196,11 +206,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (comments === 0 && fd.comments_count) comments = fd.comments_count;
           }
 
-          const impressions = metrics.impressions ?? 0;
+          // Map Meta's new `views` metric into the existing `impressions` column
+          // (see post-insights.ts for the mapping rationale).
+          const views = metrics.views ?? metrics.impressions ?? metrics.plays ?? 0;
           const reach = metrics.reach ?? 0;
           const shares = metrics.shares ?? 0;
           const saves = metrics.saved ?? 0;
-          const engagement = reach > 0 ? ((likes + comments + shares + saves) / reach) * 100 : 0;
+          const totalInteractions = metrics.total_interactions ?? 0;
+          const interactions = totalInteractions > 0
+            ? totalInteractions
+            : likes + comments + shares + saves;
+          const denominator = reach > 0 ? reach : (views > 0 ? views : 0);
+          const engagement = denominator > 0 ? (interactions / denominator) * 100 : 0;
 
           // Create an insight record even when advanced metrics are unavailable —
           // the basic like/comment counts from the fields fallback still have value
@@ -210,7 +227,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               postId: postId!,
               platform: 'INSTAGRAM',
               platformPostId: igMediaId,
-              impressions,
+              impressions: views, // Meta's `views` stored in legacy column
               reach,
               likes,
               comments,

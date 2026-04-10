@@ -138,15 +138,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           let websiteClicks = 0;
 
           try {
+            // Modern Meta signature: metric_type=total_value for aggregated metrics
+            const now = Math.floor(Date.now() / 1000);
+            const since = now - 30 * 24 * 60 * 60;
             const insRes = await fetch(
-              `${INSTAGRAM_GRAPH_API}/me/insights?metric=profile_views,website_clicks&period=day&access_token=${accessToken}`
+              `${INSTAGRAM_GRAPH_API}/me/insights?metric=profile_views,website_clicks&metric_type=total_value&period=day&since=${since}&until=${now}&access_token=${accessToken}`
             );
             if (insRes.ok) {
               const insData = await insRes.json();
               for (const item of insData.data || []) {
-                if (item.name === 'profile_views') profileViews = item.values?.[0]?.value ?? 0;
-                if (item.name === 'website_clicks') websiteClicks = item.values?.[0]?.value ?? 0;
+                const value = item.total_value?.value ?? item.values?.[0]?.value ?? 0;
+                if (item.name === 'profile_views') profileViews = value;
+                if (item.name === 'website_clicks') websiteClicks = value;
               }
+            } else {
+              const errData = await insRes.json().catch(() => ({}));
+              const errMsg = errData?.error?.message ?? `HTTP ${insRes.status}`;
+              logger.warn(`Profile insights unavailable for account ${account.id}: ${errMsg}`, { userId });
+              summary.errors.push(`Account ${account.id} profile insights: ${errMsg}`);
             }
           } catch (insErr) {
             logger.warn(`Profile insights not available for account ${account.id}`, insErr, { userId });
@@ -190,8 +199,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         for (const post of posts) {
           summary.postsProcessed++;
           try {
-            // Determine IG media product type to pick the right metrics
-            // (Reels/Stories don't support `impressions`)
+            // Determine IG media product type to pick the right metrics.
+            // Meta deprecated `impressions`/`plays` on Apr 21, 2024, replaced by `views`.
+            // Stories only support a reduced metric set (no likes/comments).
             let mediaProductType = '';
             try {
               const typeRes = await fetch(
@@ -204,24 +214,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             } catch {
               // Non-fatal
             }
-            const isReelOrStory = mediaProductType === 'REELS' || mediaProductType === 'STORY';
-            const primaryMetrics = isReelOrStory
-              ? 'reach,likes,comments,shares,saved,plays'
-              : 'impressions,reach,likes,comments,shares,saved';
+            const isStory = mediaProductType === 'STORY';
+            const primaryMetrics = isStory
+              ? 'reach,views,shares,total_interactions,replies'
+              : 'reach,likes,comments,shares,saved,views,total_interactions';
 
             let piRes = await fetch(
               `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${primaryMetrics}&access_token=${accessToken}`
             );
 
-            // Fallback: if 400 about unsupported impressions, retry without it
-            if (!piRes.ok && piRes.status === 400 && !isReelOrStory) {
+            // Fallback: if 400, retry with a minimal safe set (handles very old media)
+            if (!piRes.ok && piRes.status === 400) {
               const errData = await piRes.json().catch(() => ({}));
               const errMsg = errData?.error?.message ?? '';
-              if (errMsg.includes('impressions')) {
-                piRes = await fetch(
-                  `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=reach,likes,comments,shares,saved&access_token=${accessToken}`
-                );
-              }
+              logger.warn(`Fetch-all – metric error for ${post.igMediaId}: ${errMsg} — retrying with minimal set`, { userId });
+              const minimalMetrics = isStory ? 'reach,shares' : 'reach,likes,comments,shares,saved';
+              piRes = await fetch(
+                `${INSTAGRAM_GRAPH_API}/${post.igMediaId}/insights?metric=${minimalMetrics}&access_token=${accessToken}`
+              );
             }
 
             const metrics: Record<string, number> = {};
@@ -230,6 +240,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               for (const item of piData.data || []) {
                 metrics[item.name] = item.values?.[0]?.value ?? 0;
               }
+            } else {
+              // Surface errors instead of silently writing zeros
+              const errData = await piRes.json().catch(() => ({}));
+              const errMsg = errData?.error?.message ?? `HTTP ${piRes.status}`;
+              const msg = `IG insights unavailable for post ${post.id} (${post.igMediaId}): ${errMsg}`;
+              logger.error(msg, { userId });
+              summary.errors.push(msg);
             }
 
             // Always fetch basic fields as fallback
@@ -244,18 +261,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               if (comments === 0 && fd.comments_count) comments = fd.comments_count;
             }
 
-            const impressions = metrics.impressions ?? 0;
+            // Map Meta's new `views` metric into the existing `impressions` column
+            const views = metrics.views ?? metrics.impressions ?? metrics.plays ?? 0;
             const reach = metrics.reach ?? 0;
             const shares = metrics.shares ?? 0;
             const saves = metrics.saved ?? 0;
-            const engagement = reach > 0 ? ((likes + comments + shares + saves) / reach) * 100 : 0;
+            const totalInteractions = metrics.total_interactions ?? 0;
+            const interactions = totalInteractions > 0
+              ? totalInteractions
+              : likes + comments + shares + saves;
+            const denominator = reach > 0 ? reach : (views > 0 ? views : 0);
+            const engagement = denominator > 0 ? (interactions / denominator) * 100 : 0;
 
             await prisma.postInsight.create({
               data: {
                 postId: post.id,
                 platform: 'INSTAGRAM',
                 platformPostId: post.igMediaId,
-                impressions,
+                impressions: views, // Meta's `views` stored in legacy column
                 reach,
                 likes,
                 comments,
