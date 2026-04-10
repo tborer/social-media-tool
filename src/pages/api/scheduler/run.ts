@@ -547,6 +547,35 @@ async function processScheduledPosts(): Promise<{
           continue;
         }
 
+        // If the post was natively scheduled on Instagram or LinkedIn, the platform
+        // already published it at the correct time. Just mark it as PUBLISHED here
+        // so our DB stays in sync — do not attempt to re-publish.
+        if (account.accountType === 'INSTAGRAM' && post.igMediaId) {
+          logger.info(
+            `Post ${post.id} was natively scheduled on Instagram (containerId=${post.igMediaId}) — marking PUBLISHED`,
+            { userId: post.userId }
+          );
+          await prisma.contentPost.update({
+            where: { id: post.id },
+            data: { status: 'PUBLISHED', errorMessage: null },
+          });
+          results.published++;
+          continue;
+        }
+
+        if (account.accountType === 'LINKEDIN' && post.linkedinPostId) {
+          logger.info(
+            `Post ${post.id} was natively scheduled on LinkedIn (postId=${post.linkedinPostId}) — marking PUBLISHED`,
+            { userId: post.userId }
+          );
+          await prisma.contentPost.update({
+            where: { id: post.id },
+            data: { status: 'PUBLISHED', errorMessage: null },
+          });
+          results.published++;
+          continue;
+        }
+
         // Immediately fail unsupported platforms without retry
         if (account.accountType === 'BLUESKY') {
           logger.warn(`Post ${post.id}: BLUESKY publishing is not yet implemented, marking as FAILED immediately`, { userId: post.userId });

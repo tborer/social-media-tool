@@ -31,6 +31,7 @@ type SocialMediaAccount = {
   tokenExpiresAt?: string | null;
   linkedinUserId?: string | null;
   xUserId?: string | null;
+  instagramAccountType?: string | null;
 };
 
 type ContentPost = {
@@ -1263,7 +1264,38 @@ export default function Dashboard() {
           : p
       ));
 
-      toast({ title: "Success", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+      // Always attempt native platform scheduling — the endpoint handles each platform
+      if (scheduleAccountId) {
+        try {
+          const nativeRes = await fetch(`/api/content-posts/${schedulingPostId}/schedule-native`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+          const nativeData = await nativeRes.json();
+          if (nativeData.nativeScheduled) {
+            toast({ title: "Scheduled on platform", description: nativeData.message });
+          } else {
+            // Native scheduling wasn't possible — warn the user so they know the post won't auto-publish
+            toast({
+              variant: "destructive",
+              title: "Saved but not auto-scheduled",
+              description: nativeData.message || `Post saved for ${scheduledDateTime.toLocaleString()} but could not be submitted to the platform scheduler.`,
+            });
+          }
+        } catch {
+          toast({
+            title: "Saved",
+            description: `Post saved for ${scheduledDateTime.toLocaleString()}. Could not reach platform scheduler — please try rescheduling.`,
+          });
+        }
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Saved but not auto-scheduled",
+          description: "No account selected — select a social media account and reschedule to enable native platform scheduling.",
+        });
+      }
+
       setIsScheduling(false);
       setSchedulingPostId(null);
       setScheduleDate(undefined);
@@ -2863,7 +2895,9 @@ export default function Dashboard() {
                                 </div>
                                 {isPastDue ? (
                                   <div className="text-orange-600 text-sm mt-1">
-                                    Post is due - will publish shortly
+                                    {(post.igMediaId || post.linkedinPostId)
+                                      ? 'Published by platform — status will update on next sync'
+                                      : 'Past due — was not natively scheduled on the platform'}
                                   </div>
                                 ) : (
                                   <div className="text-blue-600 text-sm mt-1">
