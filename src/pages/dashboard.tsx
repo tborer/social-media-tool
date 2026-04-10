@@ -3740,7 +3740,7 @@ export default function Dashboard() {
                         </div>
                         <div className="flex items-center gap-2 ml-auto">
                           <span className="text-xs text-muted-foreground">
-                            {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length ?? 0} posts with insights
+                            {combinedInsights.postTable?.length ?? 0} posts ({combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length ?? 0} with insights)
                           </span>
                           <Button
                             variant="ghost"
@@ -3755,10 +3755,9 @@ export default function Dashboard() {
                       </div>
 
                       {/* Post cards */}
-                      {combinedInsights.postTable?.filter((p: any) => p.platformInsights?.length > 0).length > 0 ? (
+                      {(combinedInsights.postTable?.length ?? 0) > 0 ? (
                         <div className="space-y-2 mb-4 max-h-[28rem] overflow-y-auto pr-1">
                           {(combinedInsights.postTable as any[])
-                            .filter((p: any) => p.platformInsights?.length > 0)
                             .sort((a: any, b: any) => {
                               const getVal = (p: any) => {
                                 const ins = p.platformInsights?.[0];
