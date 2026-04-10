@@ -31,6 +31,7 @@ type SocialMediaAccount = {
   tokenExpiresAt?: string | null;
   linkedinUserId?: string | null;
   xUserId?: string | null;
+  instagramAccountType?: string | null;
 };
 
 type ContentPost = {
@@ -1263,7 +1264,36 @@ export default function Dashboard() {
           : p
       ));
 
-      toast({ title: "Success", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+      // Attempt native platform scheduling for Instagram and LinkedIn
+      const selectedAccount = scheduleAccountId
+        ? accounts.find(a => a.id === scheduleAccountId)
+        : null;
+      const supportsNative =
+        selectedAccount &&
+        (selectedAccount.accountType === 'INSTAGRAM' || selectedAccount.accountType === 'LINKEDIN');
+
+      if (supportsNative) {
+        try {
+          const nativeRes = await fetch(`/api/content-posts/${schedulingPostId}/schedule-native`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+          const nativeData = await nativeRes.json();
+          if (nativeData.nativeScheduled) {
+            toast({ title: "Scheduled", description: nativeData.message });
+          } else {
+            toast({
+              title: "Scheduled",
+              description: `Post scheduled for ${scheduledDateTime.toLocaleString()}. ${nativeData.message || 'Will be published by the scheduler.'}`,
+            });
+          }
+        } catch {
+          toast({ title: "Scheduled", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+        }
+      } else {
+        toast({ title: "Scheduled", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+      }
+
       setIsScheduling(false);
       setSchedulingPostId(null);
       setScheduleDate(undefined);
@@ -2863,7 +2893,9 @@ export default function Dashboard() {
                                 </div>
                                 {isPastDue ? (
                                   <div className="text-orange-600 text-sm mt-1">
-                                    Post is due - will publish shortly
+                                    {(post.igMediaId || post.linkedinPostId)
+                                      ? 'Published by platform — updating status shortly'
+                                      : 'Publishing now via scheduler…'}
                                   </div>
                                 ) : (
                                   <div className="text-blue-600 text-sm mt-1">
