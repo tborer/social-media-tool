@@ -1264,15 +1264,8 @@ export default function Dashboard() {
           : p
       ));
 
-      // Attempt native platform scheduling for Instagram and LinkedIn
-      const selectedAccount = scheduleAccountId
-        ? accounts.find(a => a.id === scheduleAccountId)
-        : null;
-      const supportsNative =
-        selectedAccount &&
-        (selectedAccount.accountType === 'INSTAGRAM' || selectedAccount.accountType === 'LINKEDIN');
-
-      if (supportsNative) {
+      // Always attempt native platform scheduling — the endpoint handles each platform
+      if (scheduleAccountId) {
         try {
           const nativeRes = await fetch(`/api/content-posts/${schedulingPostId}/schedule-native`, {
             method: 'POST',
@@ -1280,18 +1273,27 @@ export default function Dashboard() {
           });
           const nativeData = await nativeRes.json();
           if (nativeData.nativeScheduled) {
-            toast({ title: "Scheduled", description: nativeData.message });
+            toast({ title: "Scheduled on platform", description: nativeData.message });
           } else {
+            // Native scheduling wasn't possible — warn the user so they know the post won't auto-publish
             toast({
-              title: "Scheduled",
-              description: `Post scheduled for ${scheduledDateTime.toLocaleString()}. ${nativeData.message || 'Will be published by the scheduler.'}`,
+              variant: "destructive",
+              title: "Saved but not auto-scheduled",
+              description: nativeData.message || `Post saved for ${scheduledDateTime.toLocaleString()} but could not be submitted to the platform scheduler.`,
             });
           }
         } catch {
-          toast({ title: "Scheduled", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+          toast({
+            title: "Saved",
+            description: `Post saved for ${scheduledDateTime.toLocaleString()}. Could not reach platform scheduler — please try rescheduling.`,
+          });
         }
       } else {
-        toast({ title: "Scheduled", description: `Post scheduled for ${scheduledDateTime.toLocaleString()}` });
+        toast({
+          variant: "destructive",
+          title: "Saved but not auto-scheduled",
+          description: "No account selected — select a social media account and reschedule to enable native platform scheduling.",
+        });
       }
 
       setIsScheduling(false);
@@ -2894,8 +2896,8 @@ export default function Dashboard() {
                                 {isPastDue ? (
                                   <div className="text-orange-600 text-sm mt-1">
                                     {(post.igMediaId || post.linkedinPostId)
-                                      ? 'Published by platform — updating status shortly'
-                                      : 'Publishing now via scheduler…'}
+                                      ? 'Published by platform — status will update on next sync'
+                                      : 'Past due — was not natively scheduled on the platform'}
                                   </div>
                                 ) : (
                                   <div className="text-blue-600 text-sm mt-1">

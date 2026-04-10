@@ -87,7 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!post.socialMediaAccount) {
     return res.status(200).json({
       nativeScheduled: false,
-      message: 'No social media account assigned — post will be published by the scheduler',
+      message: 'No social media account assigned — select an account and reschedule to enable native scheduling',
     });
   }
 
@@ -105,21 +105,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (account.instagramAccountType === 'PERSONAL') {
         return res.status(200).json({
           nativeScheduled: false,
-          message: 'Personal Instagram accounts do not support native scheduling — post will be published by the scheduler',
+          message: 'Personal Instagram accounts do not support native scheduling. Upgrade to a Business or Creator account to enable this.',
         });
       }
 
       if (!post.imageUrl) {
         return res.status(200).json({
           nativeScheduled: false,
-          message: 'Instagram posts require an image — post will be published by the scheduler',
+          message: 'Instagram posts require an image for native scheduling.',
         });
       }
 
       if (minutesUntil < INSTAGRAM_MIN_SCHEDULE_MINUTES) {
         return res.status(200).json({
           nativeScheduled: false,
-          message: `Schedule time must be at least ${INSTAGRAM_MIN_SCHEDULE_MINUTES} minutes away for Instagram native scheduling — post will be published by the scheduler`,
+          message: `Instagram requires at least ${INSTAGRAM_MIN_SCHEDULE_MINUTES} minutes lead time for native scheduling. Please reschedule further in the future.`,
         });
       }
 
@@ -218,7 +218,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (minutesUntil < LINKEDIN_MIN_SCHEDULE_MINUTES) {
         return res.status(200).json({
           nativeScheduled: false,
-          message: `Schedule time must be at least ${LINKEDIN_MIN_SCHEDULE_MINUTES} minutes away for LinkedIn native scheduling — post will be published by the scheduler`,
+          message: `LinkedIn requires at least ${LINKEDIN_MIN_SCHEDULE_MINUTES} minutes lead time for native scheduling. Please reschedule further in the future.`,
         });
       }
 
@@ -304,9 +304,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Platforms without native scheduling API (X, Facebook, Bluesky)
     // -----------------------------------------------------------------------
     } else {
+      const platformLabel =
+        account.accountType === 'X' ? 'X (Twitter)' :
+        account.accountType === 'FACEBOOK' ? 'Facebook' :
+        account.accountType === 'BLUESKY' ? 'Bluesky' :
+        account.accountType;
       return res.status(200).json({
         nativeScheduled: false,
-        message: `Native scheduling is not available for ${account.accountType} — post will be published by the scheduler`,
+        message: `${platformLabel} does not support native scheduling via API. This post cannot be automatically published — please post it manually at the scheduled time.`,
       });
     }
   } catch (error: any) {
@@ -314,7 +319,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       nativeScheduled: false,
       error: error.message,
-      message: `Native scheduling failed (${error.message}) — post will be published by the scheduler`,
+      message: `Could not submit to platform scheduler: ${error.message}. Please try rescheduling or post manually.`,
     });
   }
 }
