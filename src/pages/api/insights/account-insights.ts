@@ -123,31 +123,41 @@ async function fetchAccountInsights(req: NextApiRequest, res: NextApiResponse, u
     const following = meData.follows_count ?? 0;
     const mediaCount = meData.media_count ?? 0;
 
-    // Fetch profile insights (may not be available for all account types)
+    // Fetch profile insights (may not be available for all account types).
+    // As of 2024, Meta requires `metric_type=total_value` for aggregated account
+    // metrics like profile_views and website_clicks over a period.
     let profileViews = 0;
     let websiteClicks = 0;
+    let accountInsightsError: string | null = null;
+
+    const now = Math.floor(Date.now() / 1000);
+    const since = now - 30 * 24 * 60 * 60; // last 30 days
 
     try {
       const insightsResponse = await fetch(
-        `${INSTAGRAM_GRAPH_API}/me/insights?metric=profile_views,website_clicks&period=day&access_token=${accessToken}`
+        `${INSTAGRAM_GRAPH_API}/me/insights?metric=profile_views,website_clicks&metric_type=total_value&period=day&since=${since}&until=${now}&access_token=${accessToken}`
       );
 
       if (insightsResponse.ok) {
         const insightsData = await insightsResponse.json();
         for (const item of insightsData.data || []) {
-          if (item.name === 'profile_views') {
-            profileViews = item.values?.[0]?.value ?? 0;
-          }
-          if (item.name === 'website_clicks') {
-            websiteClicks = item.values?.[0]?.value ?? 0;
-          }
+          // total_value API returns { total_value: { value: N } }
+          const total = item.total_value?.value;
+          const legacy = item.values?.[0]?.value;
+          const value = total ?? legacy ?? 0;
+          if (item.name === 'profile_views') profileViews = value;
+          if (item.name === 'website_clicks') websiteClicks = value;
         }
       } else {
-        const errorData = await insightsResponse.json();
-        logger.warn('Instagram profile insights not available for this account type:', errorData, { userId });
+        const errorData = await insightsResponse.json().catch(() => ({}));
+        const errMsg = errorData?.error?.message ?? `HTTP ${insightsResponse.status}`;
+        const errCode = errorData?.error?.code;
+        accountInsightsError = `Account insights unavailable (code ${errCode ?? '?'}): ${errMsg}`;
+        logger.warn('Instagram profile insights not available:', errorData, { userId, status: insightsResponse.status });
       }
     } catch (insightsError) {
-      logger.warn('Failed to fetch profile insights (may not be available for this account type):', insightsError, { userId });
+      accountInsightsError = insightsError instanceof Error ? insightsError.message : 'Unknown error';
+      logger.warn('Failed to fetch profile insights:', insightsError, { userId });
     }
 
     // Store as a new AccountInsight record
@@ -162,8 +172,19 @@ async function fetchAccountInsights(req: NextApiRequest, res: NextApiResponse, u
       },
     });
 
-    logger.info(`Created account insight ${insight.id} for account ${accountId}`, { userId });
-    return res.status(201).json(insight);
+    logger.info(`Created account insight ${insight.id} for account ${accountId}`, {
+      userId,
+      followers,
+      profileViews,
+      websiteClicks,
+      accountInsightsError,
+    });
+    // Surface any non-fatal account insights error to the client so the user
+    // knows why profile_views / website_clicks may be zero.
+    return res.status(201).json({
+      ...insight,
+      warning: accountInsightsError,
+    });
   } catch (error) {
     logger.error('Error fetching account insights from Instagram:', error, { userId });
     return res.status(500).json({

@@ -95,7 +95,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     logger.info('Retrieved Instagram user info:', {
       userId: user.id,
       instagramUsername: instagramUser.username,
+      instagramAccountType: instagramUser.account_type,
     });
+
+    // Validate the IG account type. Only BUSINESS and MEDIA_CREATOR accounts
+    // support the Graph API /insights edge — PERSONAL accounts will never
+    // return view/reach/engagement data even if the scopes are granted.
+    const igAccountType = instagramUser.account_type ?? null;
+    const supportsInsights = igAccountType === 'BUSINESS' || igAccountType === 'MEDIA_CREATOR';
+    if (igAccountType && !supportsInsights) {
+      logger.warn('Connected Instagram account does not support insights', {
+        userId: user.id,
+        instagramAccountType: igAccountType,
+      });
+    }
 
     // Step 4: Encrypt the access token (if encryption is configured)
     let accessToken = longLivedTokenResponse.access_token;
@@ -135,6 +148,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             accessToken,
             isEncrypted,
             tokenExpiresAt,
+            instagramAccountType: igAccountType,
             updatedAt: new Date(),
           },
         });
@@ -151,6 +165,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             isEncrypted,
             tokenExpiresAt,
             accountType: 'INSTAGRAM',
+            instagramAccountType: igAccountType,
             userId: user.id,
           },
         });
@@ -166,9 +181,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Step 7: Redirect to the return URL or dashboard
     const returnUrl = stateData.returnUrl || '/dashboard';
-    const successUrl = `${returnUrl}${
-      returnUrl.includes('?') ? '&' : '?'
-    }success=instagram_connected`;
+    const baseSuccess = `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}success=instagram_connected`;
+    // If the connected account is Personal (not Business/Creator), surface a
+    // warning so the user knows insights will not be available.
+    const successUrl = igAccountType && !supportsInsights
+      ? `${baseSuccess}&warning=${encodeURIComponent(`Instagram account is ${igAccountType} — insights are only available for BUSINESS or CREATOR accounts. Switch to a Professional account in the Instagram app to enable insights.`)}`
+      : baseSuccess;
 
     logger.info('Instagram OAuth flow completed successfully', {
       userId: user.id,

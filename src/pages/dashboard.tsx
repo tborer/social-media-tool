@@ -3467,7 +3467,7 @@ export default function Dashboard() {
                                     <div className="grid grid-cols-4 gap-1 text-center">
                                       <div>
                                         <div className="text-sm font-semibold">{(ins.reach || ins.impressions || 0).toLocaleString()}</div>
-                                        <div className="text-xs text-muted-foreground">{ins.reach > 0 ? 'Reach' : 'Impr.'}</div>
+                                        <div className="text-xs text-muted-foreground">{ins.reach > 0 ? 'Reach' : 'Views'}</div>
                                       </div>
                                       <div>
                                         <div className="text-sm font-semibold">{ins.likes.toLocaleString()}</div>

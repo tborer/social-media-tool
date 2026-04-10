@@ -34,6 +34,11 @@ model SocialMediaAccount {
   isEncrypted            Boolean       @default(false)
   tokenExpiresAt         DateTime?
   accountType            AccountType   @default(INSTAGRAM)
+  // For INSTAGRAM accounts: the Instagram account_type returned at OAuth time
+  // (BUSINESS | MEDIA_CREATOR | PERSONAL). Only BUSINESS and MEDIA_CREATOR
+  // support the Graph API /insights edge — PERSONAL accounts will never return
+  // view/reach/engagement data regardless of the scopes granted.
+  instagramAccountType   String?
   linkedinUserId         String?       // LinkedIn member URN, e.g. "urn:li:person:{id}"
   linkedinOrganizationId String?       // LinkedIn org URN for company page posting (optional)
   xUserId                String?       // X numeric user ID
