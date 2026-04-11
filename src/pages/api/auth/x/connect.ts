@@ -24,16 +24,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  console.log('[X connect] Received connect request');
+
   try {
     const supabase = createClient(req, res);
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error('[X connect] Auth error — user not logged in', { authError });
       logger.error('Authentication error in X connect:', authError);
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    console.log('[X connect] Authenticated user', { userId: user.id });
+
     if (!isXConfigured()) {
+      const missing = [
+        !process.env.X_CLIENT_ID && 'X_CLIENT_ID',
+        !process.env.X_CLIENT_SECRET && 'X_CLIENT_SECRET',
+        !process.env.X_REDIRECT_URI && 'X_REDIRECT_URI',
+      ].filter(Boolean).join(', ');
+      console.error('[X connect] OAuth not configured — missing env vars:', missing);
       logger.error('X OAuth not configured — missing X_CLIENT_ID, X_CLIENT_SECRET, or X_REDIRECT_URI');
       return res.redirect(
         '/dashboard?error=' +
@@ -62,9 +73,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const authUrl = getAuthorizationUrl(state, codeChallenge);
 
+    console.log('[X connect] Redirecting user to X OAuth', {
+      userId: user.id,
+      redirectUri: process.env.X_REDIRECT_URI,
+      scopes: new URL(authUrl).searchParams.get('scope'),
+    });
     logger.info('Redirecting user to X OAuth', { userId: user.id });
     return res.redirect(authUrl);
   } catch (error) {
+    console.error('[X connect] Unhandled error', { error });
     logger.error('Error in X connect endpoint:', error);
     return res.redirect(
       '/dashboard?error=' +
