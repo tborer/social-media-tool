@@ -143,3 +143,27 @@ export async function getUserProfile(accessToken: string): Promise<{ id: string;
 
   return response.json();
 }
+
+/**
+ * Calls GET /me?fields=id,name with the given token.
+ *
+ * For a *user* access token this returns the user's profile.
+ * For a *page* access token this returns the Page's own info
+ * (id, name) — useful for detecting and handling page-scoped tokens.
+ *
+ * Returns null instead of throwing if the request fails.
+ */
+export async function getTokenSelf(
+  accessToken: string
+): Promise<{ id: string; name: string } | null> {
+  try {
+    const params = new URLSearchParams({ access_token: accessToken, fields: 'id,name' });
+    const response = await fetch(`${FACEBOOK_GRAPH_URL}/me?${params.toString()}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data?.id && data?.name) return { id: data.id, name: data.name };
+    return null;
+  } catch {
+    return null;
+  }
+}

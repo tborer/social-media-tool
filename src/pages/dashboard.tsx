@@ -1820,7 +1820,7 @@ export default function Dashboard() {
                           </div>
 
                           <div className="grid gap-2">
-                            <Label htmlFor="fb-manual-token">Meta User Access Token</Label>
+                            <Label htmlFor="fb-manual-token">Meta Access Token</Label>
                             <Input
                               id="fb-manual-token"
                               type="password"
@@ -1829,9 +1829,10 @@ export default function Dashboard() {
                               placeholder="EAAB... (from Graph API Explorer)"
                             />
                             <p className="text-xs text-muted-foreground">
-                              Generate a token at <span className="font-mono">developers.facebook.com/tools/explorer</span> with
-                              the scopes <span className="font-mono">pages_show_list</span>, <span className="font-mono">pages_manage_posts</span>,
-                              and <span className="font-mono">pages_read_engagement</span>. We&apos;ll fetch your Page and save its token.
+                              Go to <span className="font-mono">developers.facebook.com/tools/explorer</span> and generate a token.
+                              Works with both <strong>User tokens</strong> (add scopes <span className="font-mono">pages_show_list</span>,{" "}
+                              <span className="font-mono">pages_manage_posts</span>, <span className="font-mono">pages_read_engagement</span>)
+                              and <strong>Page tokens</strong> (select your Page from the dropdown). Both are accepted.
                             </p>
                           </div>
                           <Button

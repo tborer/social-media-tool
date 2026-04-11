@@ -3,7 +3,7 @@ import { createClient } from '@/util/supabase/api';
 import prisma from '@/lib/prisma';
 import { logger } from '@/lib/server-logger';
 import { encrypt, isEncryptionConfigured } from '@/lib/encryption';
-import { getManagedPages, exchangeForLongLivedToken, isFacebookConfigured } from '@/lib/facebook-oauth';
+import { getManagedPages, exchangeForLongLivedToken, isFacebookConfigured, getTokenSelf } from '@/lib/facebook-oauth';
 
 /**
  * POST /api/auth/facebook/manual-token
@@ -58,13 +58,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Fetch the Pages managed by this user
-    const pages = await getManagedPages(tokenForPageFetch);
+    // Fetch the Pages managed by this user (works for user access tokens)
+    let pages = await getManagedPages(tokenForPageFetch);
+
+    // Fallback: the token might be a page-scoped token (generated when the user
+    // selects a specific Page in Graph API Explorer rather than "User Token").
+    // For page tokens, GET /me returns the Page's own id+name, and the token
+    // itself is the page access token — no separate page token fetch is needed.
+    if (!pages || pages.length === 0) {
+      logger.info('No pages from /me/accounts — checking if token is a page-scoped token', {
+        userId: user.id,
+      });
+      const self = await getTokenSelf(tokenForPageFetch);
+      if (self?.id && self?.name) {
+        logger.info('Detected page-scoped token; using token directly as page access token', {
+          userId: user.id,
+          pageId: self.id,
+        });
+        pages = [{ id: self.id, name: self.name, access_token: tokenForPageFetch }];
+      }
+    }
 
     if (!pages || pages.length === 0) {
       return res.status(400).json({
         error:
-          'No Facebook Pages found for this token. Make sure the token has the pages_show_list, pages_manage_posts, and pages_read_engagement scopes, and that you manage at least one Page.',
+          'No Facebook Pages found for this token. ' +
+          'If you generated this token from Meta\'s Graph API Explorer, make sure you selected ' +
+          '"User Token" (not a specific Page) in the token dropdown, then added the ' +
+          'pages_show_list, pages_manage_posts, and pages_read_engagement scopes.',
       });
     }
 
