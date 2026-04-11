@@ -27,13 +27,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { handle, appPassword } = req.body;
+
+  console.log('[Bluesky connect] Received connect request', {
+    userId: user.id,
+    handle: handle || '(missing)',
+    hasAppPassword: !!appPassword,
+  });
+
   if (!handle || !appPassword) {
+    console.error('[Bluesky connect] Missing handle or appPassword');
     return res.status(400).json({ error: 'handle and appPassword are required' });
   }
 
   try {
     // Create a Bluesky session to validate the credentials
+    console.log('[Bluesky connect] Creating ATP session for handle', { handle });
     const session = await createSession(handle, appPassword);
+    console.log('[Bluesky connect] Session created', { did: session.did, handle: session.handle });
 
     // Encrypt the access JWT for storage
     let accessToken = session.accessJwt;
@@ -45,12 +55,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         accessToken = encrypt(session.accessJwt);
         refreshToken = encrypt(session.refreshJwt);
         isEncrypted = true;
+        console.log('[Bluesky connect] Tokens encrypted');
       } catch (e) {
+        console.error('[Bluesky connect] Token encryption failed (storing plaintext)', { e });
         logger.error('Failed to encrypt Bluesky tokens:', e);
       }
+    } else {
+      console.warn('[Bluesky connect] ENCRYPTION_KEY not set — storing tokens in plaintext');
     }
 
     // Upsert the Bluesky account
+    console.log('[Bluesky connect] Upserting Bluesky account in DB', {
+      did: session.did,
+      handle: session.handle,
+    });
     const existing = await prisma.socialMediaAccount.findFirst({
       where: { userId: user.id, accountType: 'BLUESKY', blueskyDid: session.did },
     });
@@ -67,6 +85,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           updatedAt: new Date(),
         },
       });
+      console.log('[Bluesky connect] Updated existing Bluesky account', { accountId: existing.id });
       logger.info('Updated existing Bluesky account', { userId: user.id, did: session.did });
     } else {
       account = await prisma.socialMediaAccount.create({
@@ -81,9 +100,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           userId: user.id,
         },
       });
+      console.log('[Bluesky connect] Created new Bluesky account', { accountId: account.id });
       logger.info('Created new Bluesky account', { userId: user.id, did: session.did });
     }
 
+    console.log('[Bluesky connect] Success — account connected', {
+      did: session.did,
+      handle: session.handle,
+    });
     return res.status(200).json({
       success: true,
       account: {
@@ -93,10 +117,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
   } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[Bluesky connect] Error connecting account', { handle, error: msg });
     logger.error('Error connecting Bluesky account:', error, { userId: user.id });
     return res.status(400).json({
       error: 'Failed to connect Bluesky account',
-      details: error instanceof Error ? error.message : 'Unknown error',
+      details: msg,
     });
   }
 }

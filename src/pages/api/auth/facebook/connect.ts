@@ -14,14 +14,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  console.log('[Facebook connect] Received connect request');
+
   try {
     const supabase = createClient(req, res);
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error('[Facebook connect] Auth error — user not logged in', { authError });
       logger.error('Authentication error in Facebook connect:', authError);
       return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    console.log('[Facebook connect] Authenticated user', { userId: user.id });
 
     if (!isFacebookConfigured()) {
       const missing = [
@@ -30,6 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         !process.env.FACEBOOK_REDIRECT_URI && 'FACEBOOK_REDIRECT_URI',
       ].filter(Boolean).join(', ');
 
+      console.error('[Facebook connect] OAuth not configured — missing env vars:', missing);
       logger.error('Facebook OAuth not configured — missing: ' + missing);
       return res.redirect(
         '/dashboard?error=' +
@@ -48,9 +54,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const authUrl = getAuthorizationUrl(state);
 
+    console.log('[Facebook connect] Redirecting user to Facebook OAuth', {
+      userId: user.id,
+      redirectUri: process.env.FACEBOOK_REDIRECT_URI,
+      scopes: new URL(authUrl).searchParams.get('scope'),
+    });
     logger.info('Redirecting user to Facebook OAuth', { userId: user.id });
     return res.redirect(authUrl);
   } catch (error) {
+    console.error('[Facebook connect] Unhandled error', { error });
     logger.error('Error in Facebook connect endpoint:', error);
     return res.redirect(
       '/dashboard?error=' +

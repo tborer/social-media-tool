@@ -18,6 +18,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  console.log('[Instagram connect] Received connect request');
+
   try {
     // Create Supabase client for authentication
     const supabase = createClient(req, res);
@@ -26,15 +28,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error('[Instagram connect] Auth error — user not logged in', { authError });
       logger.error('Authentication error in Instagram connect:', authError);
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    console.log('[Instagram connect] Authenticated user', { userId: user.id });
+
     // Check if Instagram OAuth is configured
     if (!isInstagramConfigured()) {
+      const missing = [
+        !process.env.INSTAGRAM_APP_ID && 'INSTAGRAM_APP_ID',
+        !process.env.INSTAGRAM_APP_SECRET && 'INSTAGRAM_APP_SECRET',
+        !process.env.INSTAGRAM_REDIRECT_URI && 'INSTAGRAM_REDIRECT_URI',
+      ].filter(Boolean).join(', ');
+      console.error('[Instagram connect] OAuth not configured — missing env vars:', missing);
       logger.error('Instagram OAuth not configured - missing env vars (INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_REDIRECT_URI)');
-      // Redirect back to dashboard with an error so the user sees a toast
-      // instead of raw JSON. This is a deployment/config issue.
       return res.redirect(
         '/dashboard?error=' +
           encodeURIComponent(
@@ -57,11 +66,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Get Instagram authorization URL
     const authUrl = getAuthorizationUrl(state);
 
+    console.log('[Instagram connect] Redirecting user to Instagram OAuth', {
+      userId: user.id,
+      redirectUri: process.env.INSTAGRAM_REDIRECT_URI,
+      scopes: new URL(authUrl).searchParams.get('scope'),
+    });
     logger.info('Redirecting user to Instagram OAuth', { userId: user.id });
 
     // Redirect to Instagram authorization page
     return res.redirect(authUrl);
   } catch (error) {
+    console.error('[Instagram connect] Unhandled error', { error });
     logger.error('Error in Instagram connect endpoint:', error);
     return res.redirect(
       '/dashboard?error=' +
