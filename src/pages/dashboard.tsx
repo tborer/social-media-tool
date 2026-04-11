@@ -27,7 +27,7 @@ type SocialMediaAccount = {
   id: string;
   username: string;
   accessToken: string;
-  accountType: "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X";
+  accountType: "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" | "FACEBOOK";
   tokenExpiresAt?: string | null;
   linkedinUserId?: string | null;
   xUserId?: string | null;
@@ -120,7 +120,7 @@ function EditAccountForm({ account, onSuccess }: { account: SocialMediaAccount; 
             id="edit-account-type"
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             value={formData.accountType}
-            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X"})}
+            onChange={(e) => setFormData({...formData, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" | "FACEBOOK"})}
           >
             <option value="INSTAGRAM">Instagram</option>
             <option value="LINKEDIN">LinkedIn</option>
@@ -175,7 +175,9 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<SocialMediaAccount[]>([]);
   const [posts, setPosts] = useState<ContentPost[]>([]);
   const [isAddingAccount, setIsAddingAccount] = useState(false);
-  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" });
+  const [newAccount, setNewAccount] = useState({ username: "", accessToken: "", accountType: "INSTAGRAM" as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" | "FACEBOOK" });
+  const [fbManualToken, setFbManualToken] = useState("");
+  const [fbConnecting, setFbConnecting] = useState(false);
   const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [newPost, setNewPost] = useState({
     caption: "",
@@ -1702,10 +1704,11 @@ export default function Dashboard() {
                           id="account-type"
                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           value={newAccount.accountType}
-                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X"})}
+                          onChange={(e) => setNewAccount({...newAccount, accountType: e.target.value as "INSTAGRAM" | "LINKEDIN" | "BLUESKY" | "X" | "FACEBOOK"})}
                         >
                           <option value="INSTAGRAM">Instagram</option>
                           <option value="LINKEDIN">LinkedIn</option>
+                          <option value="FACEBOOK">Facebook</option>
                           <option value="BLUESKY">Bluesky</option>
                           <option value="X">X</option>
                         </select>
@@ -1783,6 +1786,95 @@ export default function Dashboard() {
                         </div>
                       )}
 
+                      {newAccount.accountType === "FACEBOOK" && (
+                        <div className="grid gap-3 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                            <span className="font-medium">Facebook Page</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Connect a Facebook Page to publish posts. You can either connect via OAuth
+                            (if your app is configured) or paste a user access token generated from
+                            Meta's Graph API Explorer.
+                          </p>
+
+                          <Button
+                            onClick={() => {
+                              window.location.href = '/api/auth/facebook/connect?returnUrl=/dashboard';
+                            }}
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                          >
+                            <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                            Connect with Facebook (OAuth)
+                          </Button>
+
+                          <div className="relative my-1">
+                            <div className="absolute inset-0 flex items-center">
+                              <span className="w-full border-t" />
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase">
+                              <span className="bg-muted/50 px-2 text-muted-foreground">
+                                Or paste a token
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-2">
+                            <Label htmlFor="fb-manual-token">Meta User Access Token</Label>
+                            <Input
+                              id="fb-manual-token"
+                              type="password"
+                              value={fbManualToken}
+                              onChange={(e) => setFbManualToken(e.target.value)}
+                              placeholder="EAAB... (from Graph API Explorer)"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Generate a token at <span className="font-mono">developers.facebook.com/tools/explorer</span> with
+                              the scopes <span className="font-mono">pages_show_list</span>, <span className="font-mono">pages_manage_posts</span>,
+                              and <span className="font-mono">pages_read_engagement</span>. We&apos;ll fetch your Page and save its token.
+                            </p>
+                          </div>
+                          <Button
+                            onClick={async () => {
+                              if (!fbManualToken.trim()) {
+                                toast({ variant: "destructive", title: "Error", description: "Please paste a token" });
+                                return;
+                              }
+                              setFbConnecting(true);
+                              try {
+                                const res = await fetch('/api/auth/facebook/manual-token', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ userAccessToken: fbManualToken.trim() }),
+                                  credentials: 'include',
+                                });
+                                const data = await res.json();
+                                if (!res.ok) {
+                                  throw new Error(data.error || 'Failed to connect Facebook Page');
+                                }
+                                setAccounts([...accounts.filter(a => a.id !== data.account.id), data.account]);
+                                setFbManualToken("");
+                                setIsAddingAccount(false);
+                                toast({ title: "Connected", description: data.message });
+                              } catch (error) {
+                                toast({
+                                  variant: "destructive",
+                                  title: "Error",
+                                  description: error instanceof Error ? error.message : "Failed to connect Facebook Page",
+                                });
+                              } finally {
+                                setFbConnecting(false);
+                              }
+                            }}
+                            disabled={fbConnecting || !fbManualToken.trim()}
+                            variant="outline"
+                            className="w-full"
+                          >
+                            {fbConnecting ? 'Connecting…' : 'Connect with Token'}
+                          </Button>
+                        </div>
+                      )}
+
                       <div className="relative">
                         <div className="absolute inset-0 flex items-center">
                           <span className="w-full border-t" />
@@ -1837,6 +1929,7 @@ export default function Dashboard() {
                         <CardTitle className="flex items-center">
                           {account.accountType === "INSTAGRAM" && <Instagram className="h-5 w-5 mr-2 text-pink-500" />}
                           {account.accountType === "LINKEDIN" && <svg className="h-5 w-5 mr-2 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>}
+                          {account.accountType === "FACEBOOK" && <svg className="h-5 w-5 mr-2 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>}
                           {account.accountType === "BLUESKY" && <svg className="h-5 w-5 mr-2 text-blue-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/><path d="M13 7h-2v6h6v-2h-4z"/></svg>}
                           {account.accountType === "X" && <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>}
                           {account.username}
@@ -1844,6 +1937,7 @@ export default function Dashboard() {
                         <CardDescription>
                           {account.accountType === "INSTAGRAM" ? "Instagram" :
                            account.accountType === "LINKEDIN" ? "LinkedIn" :
+                           account.accountType === "FACEBOOK" ? "Facebook" :
                            account.accountType === "BLUESKY" ? "Bluesky" : "X"}
                         </CardDescription>
                         {account.tokenExpiresAt && (() => {
@@ -1925,6 +2019,7 @@ export default function Dashboard() {
                               <AlertDialogDescription>
                                 This will permanently delete the {account.accountType === "INSTAGRAM" ? "Instagram" :
                                 account.accountType === "LINKEDIN" ? "LinkedIn" :
+                                account.accountType === "FACEBOOK" ? "Facebook" :
                                 account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "{account.username}" from your dashboard.
                                 This action cannot be undone.
                               </AlertDialogDescription>
@@ -1950,6 +2045,7 @@ export default function Dashboard() {
                                       title: "Success",
                                       description: `${account.accountType === "INSTAGRAM" ? "Instagram" :
                                       account.accountType === "LINKEDIN" ? "LinkedIn" :
+                                      account.accountType === "FACEBOOK" ? "Facebook" :
                                       account.accountType === "BLUESKY" ? "Bluesky" : "X"} account "${account.username}" has been removed`,
                                     });
                                   } catch (error) {
@@ -5537,6 +5633,7 @@ export default function Dashboard() {
                       <option key={account.id} value={account.id} disabled={account.accountType === "BLUESKY"}>
                         {account.username} ({account.accountType === "INSTAGRAM" ? "Instagram" :
                          account.accountType === "LINKEDIN" ? "LinkedIn" :
+                         account.accountType === "FACEBOOK" ? "Facebook" :
                          account.accountType === "BLUESKY" ? "Bluesky — coming soon" : "X"})
                       </option>
                     ))}
